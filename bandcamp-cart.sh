@@ -60,7 +60,7 @@ async function main() {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await new Promise(r => { ws.onopen = r; });
 
-  // 1. Keep-Alive Tab erstellen (damit Chrome nicht schließt)
+  // 1. Anchor Tab erstellen
   const mainTab = await send("Target.createTarget", { url: "about:blank" });
   const mainTid = mainTab.result.targetId;
 
@@ -120,8 +120,9 @@ async function main() {
     console.log("\nÖffne Warenkorb...");
     const ar = await send("Target.attachToTarget", { targetId: mainTid, flatten: true });
     await send("Page.navigate", { url: "https://bandcamp.com/cart" }, ar.result.sessionId);
+    await send("Target.activateTarget", { targetId: mainTid });
+    await sleep(1000);
   } else {
-    // Falls nichts im Korb ist, können wir den Keep-Alive Tab schließen
     await send("Target.closeTarget", { targetId: mainTid });
   }
 }
@@ -129,10 +130,6 @@ main().catch(e => { console.error(e); process.exit(1); });
 NODEEOF
 
 # --- START ---
-echo "=========================================="
-echo "  Bandcamp -> Warenkorb (Parallel v2.1)"
-echo "=========================================="
-
 if ! curl -s "http://127.0.0.1:9222/json/version" &>/dev/null; then
   "$CHROME" --remote-debugging-port=9222 --user-data-dir="${TEMP:-/tmp}/bc-cart-profile" &>/dev/null &
   sleep 3
