@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bandcamp Auto-Cart (Reliable Parallel Edition)
+# Bandcamp Auto-Cart (Price Detection Edition)
 # Benötigt: Chrome + Node.js (v22+)
 
 set -o pipefail
@@ -86,18 +86,34 @@ async function main() {
         await sleep(800);
         const r = await send("Runtime.evaluate", {
           expression: `(async () => {
-            const h = document.documentElement.innerHTML;
-            const m = h.match(/\"item_id\":\\s*(\\d+)/) || h.match(/data-item-id=\"(\\d+)\"/) || h.match(/item[-_]id.{0,10}?(\\d{5,})/);
-            if (!m) return null;
-            const res = await fetch(window.location.origin + '/cart/cb', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-              body: 'req=add&item_type=' + (window.location.href.includes('/album/') ? 'a' : 't') + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=0'
-            });
-            const data = await res.json();
-            // Erfolg wenn neue ID da ist ODER resync:true (bedeutet oft 'schon drin')
-            if (data && (data.id || data.resync === true || data.ok === true)) return 'OK';
-            return 'ERR:' + JSON.stringify(data);
+            try {
+              const h = document.documentElement.innerHTML;
+              
+              // ID Erkennung
+              const id = (window.TralbumData && window.TralbumData.id) || 
+                         (document.querySelector('[data-item-id]')?.dataset.itemId) ||
+                         (h.match(/\"item_id\":\\s*(\\d+)/)?.[1]);
+              if (!id) return null;
+              
+              // PREIS Erkennung (WICHTIG für Checkout!)
+              let price = 0;
+              if (window.TralbumData && window.TralbumData.current) {
+                price = window.TralbumData.current.price || 0;
+              } else {
+                const mp = h.match(/\"price\":\\s*([\\d.]+)/);
+                if (mp) price = parseFloat(mp[1]);
+              }
+              
+              const type = window.location.href.includes('/album/') ? 'a' : 't';
+              const res = await fetch(window.location.origin + '/cart/cb', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=0'
+              });
+              const data = await res.json();
+              if (data && (data.id || data.resync === true || data.ok === true)) return 'OK';
+              return 'ERR:' + JSON.stringify(data);
+            } catch(e) { return 'ERR:' + e.message; }
           })()`,
           awaitPromise: true, returnByValue: true
         }, sid);
@@ -118,7 +134,6 @@ async function main() {
   console.log("\nErgebnis: " + success + " OK / " + fail + " Fehler");
   
   if (success > 0 || fail > 0) {
-    console.log("\nÖffne Warenkorb...");
     const ar = await send("Target.attachToTarget", { targetId: mainTid, flatten: true });
     await send("Page.navigate", { url: "https://bandcamp.com/cart" }, ar.result.sessionId);
     await send("Target.activateTarget", { targetId: mainTid });
