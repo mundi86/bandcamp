@@ -2,62 +2,84 @@
 
 > 🛒 Automatisch Tracks & Alben von Bandcamp in den Warenkorb legen — ohne Login!
 
+---
+
 ## ✨ Features
 
-- 🚀 **Automatisches Hinzufügen** — legt alle Links aus einer Textdatei in den Warenkorb
+- 🚀 **Automatisches Hinzufügen** — alle Links aus einer Textdatei auf einmal in den Warenkorb
 - 🔓 **Ohne Anmeldung** — Login erst beim Checkout nötig
 - 📂 **Einfache Konfiguration** — eine `bandcamp.txt` mit URLs, eine pro Zeile
-- 🌐 **Tracks & Alben** — unterstützt beides automatisch
-- 🛍️ **Auto-Checkout** — öffnet den Warenkorb am Ende automatisch
+- 🌐 **Tracks & Alben** — beides wird automatisch erkannt
+- 🛍️ **Auto-Checkout** — öffnet den Warenkorb am Ende automatisch im Browser
+- 🖥️ **Plattformübergreifend** — Windows, Mac & Linux
 
-## 📋 Welches Script für welches System?
+---
 
-| 📁 Script | 💻 System | 🛠️ Benötigt |
-|-----------|----------|-------------|
-| `bandcamp-cart.ps1` | Windows | **Nichts** ✅ (PowerShell ist vorinstalliert) |
-| `bandcamp-cart.sh` | Mac / Linux | **Nichts** ✅ (bash & curl sind vorinstalliert) |
-| `bandcamp-cart.sh` | Windows | [Git Bash](https://git-scm.com/downloads) |
+## 📋 Voraussetzungen
 
-## 📁 Struktur
+| 💻 System | 📁 Script | 🛠️ Installation nötig? |
+|----------|----------|----------------------|
+| **Windows** | `bandcamp-cart.ps1` | ❌ Nein (PowerShell ist vorinstalliert) |
+| **Mac** | `bandcamp-cart.sh` | ❌ Nein (bash & curl sind vorinstalliert) |
+| **Linux** | `bandcamp-cart.sh` | ❌ Nein (bash & curl sind vorinstalliert) |
+| **Windows + Bash** | `bandcamp-cart.sh` | [Git Bash](https://git-scm.com/downloads) |
+
+---
+
+## 📁 Dateien
 
 ```
 bandcam.com/
-├── bandcamp-cart.ps1  🤖 PowerShell-Script (empfohlen)
-├── bandcamp-cart.sh   🐧 Bash-Script (Linux/Mac/Git Bash)
+├── bandcamp-cart.ps1  ⚡ PowerShell-Script (Windows)
+├── bandcamp-cart.sh   🐧 Bash-Script (Mac / Linux)
 ├── bandcamp.txt       🔗 Deine Bandcamp-URLs
-└── README.md          📖 Diese Datei
+└── README.md          📖 Dokumentation
 ```
 
-## 🚀 Schnellstart
+---
+
+## 🚀 Los geht's
 
 ### 1️⃣ URLs in `bandcamp.txt` eintragen
+
+Öffne `bandcamp.txt` und füge deine Bandcamp-Links ein — **eine URL pro Zeile**:
 
 ```text
 https://lospepes.bandcamp.com/track/sweet-appeasement-2
 https://michaelsimmons.bandcamp.com/track/thats-all-feat-nicole-kubis
 https://rumbarrecords.bandcamp.com/track/bye-bye-love
+https://sfapf.bandcamp.com/album/this-love
 ```
 
-> 💡 **Tipp:** Eine URL pro Zeile. Leerzeilen und Zeilen mit `#` werden ignoriert.
+> 💡 Leerzeilen und Zeilen mit `#` werden ignoriert — so kannst du Kommentare schreiben:
+> ```text
+> # 🎸 Rock
+> https://artist.bandcamp.com/track/song-name
+> ```
 
 ### 2️⃣ Script starten
 
-**Option A — PowerShell (empfohlen, keine Installation):**
-🖱️ Rechtsklick auf `bandcamp-cart.ps1` → **Mit PowerShell ausführen**
+**🪟 Windows:**
 
-> ⚠️ Falls es nicht startet: PowerShell öffnen und eingeben:
-> ```powershell
-> powershell -ExecutionPolicy Bypass -File bandcamp-cart.ps1
-> ```
+Rechtsklick auf `bandcamp-cart.ps1` → **Mit PowerShell ausführen**
 
-**Option B — Bash (Git Bash oder Linux/Mac):**
+Falls es nicht startet, PowerShell öffnen und eingeben:
+```powershell
+powershell -ExecutionPolicy Bypass -File bandcamp-cart.ps1
+```
+
+**🍎 Mac / 🐧 Linux:**
+
+Terminal öffnen und eingeben:
 ```bash
 bash bandcamp-cart.sh
 ```
 
-### 3️⃣ Warenkorb öffnet sich automatisch
+### 3️⃣ Bezahlen
 
-🛍️ Du siehst alle Titel im Warenkorb → auf **Checkout** klicken → bezahlen! 💳
+🛍️ Der Warenkorb öffnet sich automatisch → **Checkout** klicken → fertig!
+
+---
 
 ## 📖 Beispiel-Output
 
@@ -80,69 +102,50 @@ Titel:  10
 Öffne Warenkorb zum Bezahlen...
 ```
 
-## 🔧 Konfiguration
+---
 
-### URLs hinzufügen
-
-Öffne `bandcamp.txt` und füge neue Zeilen hinzu:
-
-```text
-# 🎸 Meine Lieblings-Songs
-https://artist1.bandcamp.com/track/song-name
-https://artist2.bandcamp.com/album/album-name
-
-# 🎹 Noch mehr Musik
-https://artist3.bandcamp.com/track/another-song
-```
-
-### Unterstützte URL-Formate
+## 🔧 Unterstützte URL-Formate
 
 | 🎵 Typ | 📝 Beispiel |
 |--------|------------|
 | Track | `https://artist.bandcamp.com/track/song-name` |
 | Album | `https://artist.bandcamp.com/album/album-name` |
 
-## ⚙️ Wie funktioniert das?
+---
+
+## ⚙️ Ablauf
 
 ```
-┌─────────────────────────────────────────────────┐
-│  1. 📥 bandcamp.txt wird gelesen                │
-│  2. 🌐 Für jede URL wird die Seite geladen      │
-│  3. 🔍 Item-ID wird aus dem HTML extrahiert     │
-│  4. 🛒 POST an /cart/cb API → Warenkorb         │
-│  5. 🔄 Wiederholen für alle URLs                │
-│  6. 🌍 Warenkorb wird im Browser geöffnet       │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  1. 📥  bandcamp.txt wird eingelesen                 │
+│  2. 🌐  Für jede URL wird die Bandcamp-Seite geladen │
+│  3. 🔍  Interne Item-ID wird aus dem HTML extrahiert │
+│  4. 🛒  POST an /cart/cb API → Warenkorb             │
+│  5. 🔄  Wiederholung für alle URLs                   │
+│  6. 🌍  Warenkorb öffnet sich automatisch im Browser │
+└──────────────────────────────────────────────────────┘
 ```
+
+---
 
 ## ❓ FAQ
 
-### 🤔 Muss ich mich anmelden?
+**🤔 Muss ich mich anmelden?**
+> Nein. Bandcamp legt alles in einen anonymen Warenkorb. Du meldest dich erst beim Checkout an.
 
-> ❌ **Nein** — Bandcamp legt alles in einen anonymen Warenkorb. Du meldest dich erst beim Checkout an.
+**💰 Was wenn ein Track Geld kostet?**
+> Kein Problem. Der Preis wird automatisch im Warenkorb angezeigt. Du siehst alles bevor du bezahlst.
 
-### 💰 Was wenn ein Track Geld kostet?
+**🔄 Kann ich die Links nochmal hinzufügen?**
+> Der Warenkorb wird bei jedem Script-Durchlauf geleert. Einfach `bandcamp.txt` anpassen und nochmal starten.
 
-> ✅ **Kein Problem** — der Preis wird automatisch im Warenkorb angezeigt. Du siehst alles vor dem Bezahlen.
+**🛡️ Ist das sicher?**
+> Ja. Es wird nur die öffentliche Bandcamp-API verwendet. Keine Passwörter oder persönlichen Daten nötig.
 
-### 🔄 Kann ich die Links nochmal hinzufügen?
-
-> 🗑️ Der Warenkorb wird bei jedem Script-Durchlauf **geleert**. Einfach `bandcamp.txt` anpassen und nochmal starten.
-
-### 🛡️ Ist das sicher?
-
-> ✅ **Ja** — es wird nur die öffentliche Bandcamp-API verwendet. Keine Passwörter oder persönlichen Daten nötig.
-
-### 🐧 Funktioniert das auf Linux/Mac?
-
-> ✅ **Ja** — einfach `bash bandcamp-cart.sh` im Terminal ausführen. Nur die `start`-Zeile am Ende ist Windows-spezifisch.
+---
 
 ## 📝 Lizenz
 
 🆓 Kostenlos — mach damit was du willst!
 
----
-
-<p align="center">
-  🎶 Viel Spaß beim Musik kaufen! 🎶
-</p>
+🎶 Viel Spaß beim Musik kaufen! 🎶
