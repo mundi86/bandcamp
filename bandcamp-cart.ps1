@@ -1,11 +1,10 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Fast Parallel Version)
+# Bandcamp Auto-Cart (Turbo Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LinkFile  = Join-Path $ScriptDir "bandcamp.txt"
-$Concurrency = 5
 
 # --- URLs laden ---
 if (-not (Test-Path $LinkFile)) {
@@ -58,7 +57,7 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
     while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
         $fullMsg = ""; $isEnd = $false
         do {
-            $buf = New-Object byte[] 65536
+            $buf = New-Object byte[] 131072
             $cts = New-Object Threading.CancellationTokenSource(2000)
             try {
                 $res = $script:Ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $cts.Token).Result
@@ -78,11 +77,10 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 #   START
 # ==========================================
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (FAST & PARALLEL)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Turbo Mode)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "Browser: $BrowserName"
 Write-Host "Titel:   $($Urls.Count)"
-Write-Host "Worker:  $Concurrency"
 Write-Host ""
 
 # Browser prüfen/starten
@@ -95,68 +93,63 @@ if (-not $portOpen) {
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Konnte keine Verbindung zum Browser herstellen." -ForegroundColor Red; exit 1 }
 
-$Jobs = @()
-$UrlIndex = 0
 $Success = 0; $Fail = 0
+$Total = $Urls.Count
 
-while ($UrlIndex -lt $Urls.Count -or $Jobs.Count -gt 0) {
-    # Neue Jobs starten bis Concurrency erreicht
-    while ($Jobs.Count -lt $Concurrency -and $UrlIndex -lt $Urls.Count) {
-        $url = $Urls[$UrlIndex].Trim()
-        $num = ++$UrlIndex
-        $label = ($url -split "/")[-1]
-        
-        # Tab erstellen
-        $cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
-        $tid = $cr.result.targetId
-        $ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
-        $sid = $ar.result.sessionId
-        
-        Send-Cdp "Page.navigate" @{ url = $url } $sid | Out-Null
-        
-        $Jobs += [PSCustomObject]@{
-            num = $num; label = $label; sid = $sid; tid = $tid; 
-            startTime = [DateTime]::Now; status = "loading"
-        }
-    }
+for ($i = 0; $i -lt $Total; $i++) {
+    $url = $Urls[$i].Trim()
+    $num = $i + 1
+    $label = ($url -split "/")[-1]
+    Write-Host "[$num/$Total] $label ... " -NoNewline
 
-    # Aktive Jobs prüfen
-    $completed = @()
-    foreach ($job in $Jobs) {
+    # Tab erstellen & Attach
+    $cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
+    $tid = $cr.result.targetId
+    $ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
+    $sid = $ar.result.sessionId
+    
+    Send-Cdp "Page.navigate" @{ url = $url } $sid | Out-Null
+    
+    # Turbo Polling: ID suchen & Add to Cart
+    $result = "TIMEOUT"
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt 15000) {
+        Start-Sleep -Milliseconds 500
         $js = @"
 (async () => {
-    const m = document.documentElement.innerHTML.match(/item[-_]id.{0,10}?(\d{5,})/);
-    if (!m) return null;
-    const r = await fetch(window.location.origin + '/cart/cb', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'req=add&item_type=' + (window.location.href.includes('/album/') ? 'a' : 't') + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc'+Date.now()+'&sync_num=$($job.num)&cart_length=0'
-    });
-    const d = await r.json();
-    return d.id ? 'OK:' + d.id : 'ERR:' + (d.error_message || 'unknown');
+    try {
+        const h = document.documentElement.innerHTML;
+        const m = h.match(/\"item_id\":\s*(\d+)/) || h.match(/data-item-id=\"(\d+)\"/) || h.match(/item[-_]id.{0,10}?(\d{5,})/);
+        if (!m) return null;
+        
+        const type = window.location.href.includes('/album/') ? 'a' : 't';
+        const r = await fetch(window.location.origin + '/cart/cb', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'req=add&item_type=' + type + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc'+Date.now()+'&sync_num=$num&cart_length=0'
+        });
+        const d = await r.json();
+        return d.id ? 'OK:' + d.id : 'ERR:' + (d.error_message || 'unknown');
+    } catch(e) { return 'ERR:' + e.message; }
 })()
 "@
-        $rid = Send-Cdp "Runtime.evaluate" @{ expression = $js; awaitPromise = $true; returnByValue = $true } $job.sid
-        $res = Wait-Reply $rid 2000
-        $val = $res.result.result.value
-
-        if ($val -or ([DateTime]::Now - $job.startTime).TotalSeconds -gt 15) {
-            if ($val -and $val.StartsWith("OK:")) {
-                Write-Host "[$($job.num)/$($Urls.Count)] $($job.label) ... OK" -ForegroundColor Green
-                $Success++
-            } else {
-                $errDetail = if ($val) { $val } else { 'Timeout' }
-                Write-Host "[$($job.num)/$($Urls.Count)] $($job.label) ... FEHLER ($errDetail)" -ForegroundColor Red
-                $Fail++
-            }
-            Send-Cdp "Target.closeTarget" @{ targetId = $job.tid } | Out-Null
-            $completed += $job
+        $rid = Send-Cdp "Runtime.evaluate" @{ expression = $js; awaitPromise = $true; returnByValue = $true } $sid
+        $reply = Wait-Reply $rid 3000
+        if ($reply.result.result.value) {
+            $result = $reply.result.result.value
+            break
         }
     }
 
-    # Fertige Jobs entfernen
-    foreach ($c in $completed) { $Jobs = $Jobs | Where-Object { $_.tid -ne $c.tid } }
-    if ($Jobs.Count -gt 0) { Start-Sleep -Milliseconds 500 }
+    if ($result.StartsWith("OK:")) {
+        Write-Host "OK" -ForegroundColor Green
+        $Success++
+    } else {
+        Write-Host "FEHLER ($result)" -ForegroundColor Red
+        $Fail++
+    }
+    
+    Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
 
 Write-Host ""
