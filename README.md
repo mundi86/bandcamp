@@ -10,14 +10,13 @@
 - 🌐 **Tracks & Alben** — unterstützt beides automatisch
 - 🛍️ **Auto-Checkout** — öffnet den Warenkorb am Ende automatisch
 
-## 📋 Voraussetzungen
+## 📋 Welches Script für welches System?
 
-| 📁 Script | 🛠️ Benötigt | 💻 Plattform |
-|-----------|-------------|-------------|
-| `bandcamp-cart.ps1` | **Nichts** ✅ | Windows (vorinstalliert) |
-| `bandcamp-cart.sh` | [Git Bash](https://git-scm.com/downloads) | Windows / Linux / Mac |
-
-> 💡 **Empfehlung:** Die `.ps1` (PowerShell) Version — läuft sofort ohne Installation!
+| 📁 Script | 💻 System | 🛠️ Benötigt |
+|-----------|----------|-------------|
+| `bandcamp-cart.ps1` | Windows | **Nichts** ✅ (PowerShell ist vorinstalliert) |
+| `bandcamp-cart.sh` | Mac / Linux | **Nichts** ✅ (bash & curl sind vorinstalliert) |
+| `bandcamp-cart.sh` | Windows | [Git Bash](https://git-scm.com/downloads) |
 
 ## 📁 Struktur
 
