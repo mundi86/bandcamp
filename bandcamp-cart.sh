@@ -60,7 +60,6 @@ async function main() {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await new Promise(r => { ws.onopen = r; });
 
-  // 1. Anchor Tab erstellen
   const mainTab = await send("Target.createTarget", { url: "about:blank" });
   const mainTid = mainTab.result.targetId;
 
@@ -96,7 +95,9 @@ async function main() {
               body: 'req=add&item_type=' + (window.location.href.includes('/album/') ? 'a' : 't') + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=0'
             });
             const data = await res.json();
-            return data.id ? 'OK' : 'ERR:' + JSON.stringify(data);
+            // Erfolg wenn neue ID da ist ODER resync:true (bedeutet oft 'schon drin')
+            if (data && (data.id || data.resync === true || data.ok === true)) return 'OK';
+            return 'ERR:' + JSON.stringify(data);
           })()`,
           awaitPromise: true, returnByValue: true
         }, sid);
@@ -104,7 +105,7 @@ async function main() {
       }
 
       if (val === "OK") { console.log("["+num+"/"+urls.length+"] " + label + " ... OK"); success++; }
-      else { console.log("["+num+"/"+urls.length+"] " + label + " ... FEHLER (" + val + ")"); fail++; }
+      else { console.log("["+num+"/"+urls.length+"] " + label + " ... FEHLER (" + val.substring(0, 50) + "...)"); fail++; }
       await send("Target.closeTarget", { targetId: tid });
     } catch (e) { fail++; }
   }
@@ -116,7 +117,7 @@ async function main() {
 
   console.log("\nErgebnis: " + success + " OK / " + fail + " Fehler");
   
-  if (success > 0) {
+  if (success > 0 || fail > 0) {
     console.log("\nÖffne Warenkorb...");
     const ar = await send("Target.attachToTarget", { targetId: mainTid, flatten: true });
     await send("Page.navigate", { url: "https://bandcamp.com/cart" }, ar.result.sessionId);
