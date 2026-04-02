@@ -72,7 +72,6 @@ if (-not $portOpen) {
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Browser-Verbindung fehlgeschlagen." -ForegroundColor Red; exit 1 }
 
-# 1. Anchor Tab erstellen
 $mainCr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
 $mainTid = $mainCr.result.targetId
 
@@ -103,7 +102,8 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
             body: 'req=add&item_type=' + type + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=0'
         });
         const d = await res.json();
-        return d.id ? 'OK' : 'ERR:' + JSON.stringify(d);
+        if (d && (d.id || d.resync === true || d.ok === true)) return 'OK';
+        return 'ERR:' + JSON.stringify(d);
     } catch(e) { return 'ERR:' + e.message; }
 })()
 "@
@@ -113,20 +113,18 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
     }
 
     if ($result -eq "OK") { Write-Host "OK" -ForegroundColor Green; $Success++ }
-    else { Write-Host "FEHLER ($result)" -ForegroundColor Red; $Fail++ }
+    else { Write-Host "FEHLER ($($result.Substring(0, [Math]::Min(50, $result.Length))) ...)" -ForegroundColor Red; $Fail++ }
     Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
 
 Write-Host "`nErgebnis: $Success OK / $Fail Fehler"
-if ($Success -gt 0) {
+if ($Success -gt 0 -or $Fail -gt 0) {
     Write-Host "`nÖffne Warenkorb..."
     $arMain = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $mainTid; flatten = $true })
-    Wait-Reply (Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $arMain.result.sessionId) 5000
+    Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $arMain.result.sessionId | Out-Null
     Send-Cdp "Target.activateTarget" @{ targetId = $mainTid } | Out-Null
-    Start-Sleep -Seconds 1
 } else {
     Send-Cdp "Target.closeTarget" @{ targetId = $mainTid } | Out-Null
 }
 
-Write-Host "`nFertig. Browser bleibt für Checkout offen."
-Read-Host "Enter zum Beenden"
+Read-Host "`nFertig. Enter zum Beenden"
