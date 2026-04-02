@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Price Turbo Edition)
+# Bandcamp Auto-Cart (Final Price Fix Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -64,14 +64,12 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 
 # --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Price Fix Edition)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Deep Price Search)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
-# Browser im Inkognito-Modus starten
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
-    Write-Host "Starte Browser (Inkognito)..."
     Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile-new --no-first-run"
     Start-Sleep -Seconds 3
 }
@@ -100,22 +98,43 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 (async () => {
     try {
         if (!document.body) return null;
+        const html = document.documentElement.innerHTML;
         
         // 1. ID Erkennung
         const id = (window.TralbumData && window.TralbumData.id) || 
                    (document.querySelector('[data-item-id]')?.dataset.itemId) ||
-                   (document.documentElement.innerHTML.match(/\"item_id\":\s*(\d+)/)?.[1]);
+                   (html.match(/\"item_id\":\s*(\d+)/)?.[1]);
         if (!id) return null;
         
-        // 2. PREIS Erkennung (verbessert)
+        // 2. PREIS Erkennung (Deep Search)
         let price = 0;
-        if (window.TralbumData) {
+        
+        // A) LD+JSON (Sehr zuverlässig)
+        try {
+            const ld = document.querySelector('script[type="application/ld+json"]');
+            if (ld) {
+                const data = JSON.parse(ld.innerText);
+                if (data.offers && data.offers.price) price = parseFloat(data.offers.price);
+                else if (Array.isArray(data.offers) && data.offers[0].price) price = parseFloat(data.offers[0].price);
+            }
+        } catch(e) {}
+
+        // B) TralbumData Check
+        if (price === 0 && window.TralbumData) {
             price = window.TralbumData.minimum_price || 
                     (window.TralbumData.current && window.TralbumData.current.price) || 0;
         }
+
+        // C) Meta Tags Fallback
         if (price === 0) {
-            const metaPrice = document.querySelector('meta[itemprop="price"]');
-            if (metaPrice) price = parseFloat(metaPrice.content);
+            const meta = document.querySelector('meta[itemprop="price"]');
+            if (meta) price = parseFloat(meta.content);
+        }
+
+        // D) Regex Scan (Letzte Rettung)
+        if (price === 0) {
+            const mp = html.match(/\"minimum_price\":\s*([\d.]+)/) || html.match(/\"price\":\s*([\d.]+)/);
+            if (mp) price = parseFloat(mp[1]);
         }
         
         const type = window.location.href.includes('/album/') ? 'a' : 't';
@@ -134,21 +153,16 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
         $reply = Wait-Reply $rid 5000
         $val = $reply.result.result.value
         if ($val -and $val -like "OK:*") {
-            $result = "OK"
-            $detectedPrice = $val.Replace("OK:", "")
-            break
+            $result = "OK"; $detectedPrice = $val.Replace("OK:", ""); break
         } elseif ($val -and $val -like "ERR:*") {
-            $result = $val
-            break
+            $result = $val; break
         }
     }
 
     if ($result -eq "OK") {
-        Write-Host "OK (Preis: $detectedPrice)" -ForegroundColor Green
-        $Success++
+        Write-Host "OK (Preis: $detectedPrice)" -ForegroundColor Green; $Success++
     } else {
-        Write-Host "FEHLER ($result)" -ForegroundColor Red
-        $Fail++
+        Write-Host "FEHLER ($result)" -ForegroundColor Red; $Fail++
     }
     Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
@@ -162,5 +176,4 @@ if ($Success -gt 0 -or $Fail -gt 0) {
 } else {
     Send-Cdp "Target.closeTarget" @{ targetId = $mainTid } | Out-Null
 }
-
 Read-Host "`nFertig. Enter zum Beenden"
