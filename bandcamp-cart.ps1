@@ -63,10 +63,6 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 }
 
 # --- START ---
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Reliable v2.1)" -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
-
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
@@ -76,7 +72,7 @@ if (-not $portOpen) {
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Browser-Verbindung fehlgeschlagen." -ForegroundColor Red; exit 1 }
 
-# 1. Keep-Alive Tab (Anchor) erstellen
+# 1. Anchor Tab erstellen
 $mainCr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
 $mainTid = $mainCr.result.targetId
 
@@ -125,7 +121,9 @@ Write-Host "`nErgebnis: $Success OK / $Fail Fehler"
 if ($Success -gt 0) {
     Write-Host "`nÖffne Warenkorb..."
     $arMain = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $mainTid; flatten = $true })
-    Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $arMain.result.sessionId | Out-Null
+    Wait-Reply (Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $arMain.result.sessionId) 5000
+    Send-Cdp "Target.activateTarget" @{ targetId = $mainTid } | Out-Null
+    Start-Sleep -Seconds 1
 } else {
     Send-Cdp "Target.closeTarget" @{ targetId = $mainTid } | Out-Null
 }
