@@ -57,7 +57,7 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
     while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
         $fullMsg = ""; $isEnd = $false
         do {
-            $buf = New-Object byte[] 262144 # 256KB Buffer
+            $buf = New-Object byte[] 262144
             $cts = New-Object Threading.CancellationTokenSource(3000)
             try {
                 $res = $script:Ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $cts.Token).Result
@@ -79,9 +79,6 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "  Bandcamp -> Warenkorb (Reliable Mode)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "Browser: $BrowserName"
-Write-Host "Titel:   $($Urls.Count)"
-Write-Host ""
 
 # Browser prüfen/starten
 $portOpen = $false
@@ -93,6 +90,13 @@ if (-not $portOpen) {
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Konnte keine Verbindung zum Browser herstellen." -ForegroundColor Red; exit 1 }
 
+# Einen Tab für alles nutzen
+$cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
+$tid = $cr.result.targetId
+$ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
+$sid = $ar.result.sessionId
+Send-Cdp "Runtime.enable" @{} $sid | Out-Null
+
 $Success = 0; $Fail = 0
 $Total = $Urls.Count
 
@@ -102,47 +106,46 @@ for ($i = 0; $i -lt $Total; $i++) {
     $label = ($url -split "/")[-1]
     Write-Host "[$num/$Total] $label ... " -NoNewline
 
-    # Tab für diesen Link erstellen
-    $cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = $url })
-    if (-not $cr.result.targetId) { Write-Host "FEHLER (Tab-Limit?)" -ForegroundColor Red; $Fail++; continue }
+    Send-Cdp "Page.navigate" @{ url = $url } $sid | Out-Null
     
-    $tid = $cr.result.targetId
-    $ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
-    $sid = $ar.result.sessionId
-    
-    # Polling für die ID und den Cart-Request
     $result = "TIMEOUT"
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ($sw.ElapsedMilliseconds -lt 25000) {
+    while ($sw.ElapsedMilliseconds -lt 20000) {
         Start-Sleep -Milliseconds 800
         $js = @"
 (async () => {
     try {
-        if (!document.body) return "WAIT:body";
+        if (!document.body || !window.fetch) return "WAIT:init";
+        
+        // ID Erkennung
         const id = (window.TralbumData && window.TralbumData.id) || 
                    (document.querySelector('[data-item-id]')?.dataset.itemId) ||
                    (document.documentElement.innerHTML.match(/item[-_]id[:"]{1,2}\s*(\d+)/i)?.[1]);
         if (!id) return "WAIT:id";
         
         const type = window.location.href.includes('/album/') ? 'a' : 't';
+        const localId = 'lc' + Date.now();
+        
+        // Request mit vollständigen Parametern um resync:true zu vermeiden
         const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'req=add&item_type=' + type + '&item_id=' + id + '&quantity=1&local_id=lc' + Date.now()
+            body: 'req=add&item_type=' + type + '&item_id=' + id + '&quantity=1&local_id=' + localId + '&sync_num=' + ($i + 1) + '&cart_length=' + $i
         });
+        
         const d = await res.json();
-        return (d && d.ok !== false) ? 'OK' : 'ERR:' + (d.error_message || JSON.stringify(d));
+        // Falls d.id vorhanden ist ODER d.resync:true (was oft bedeutet, dass es bereits drin ist oder nun synchronisiert ist)
+        if (d && (d.id || d.resync === true || d.ok === true)) return 'OK';
+        return 'ERR:' + JSON.stringify(d);
     } catch(e) { return 'ERR:' + e.message; }
 })()
 "@
         $rid = Send-Cdp "Runtime.evaluate" @{ expression = $js; awaitPromise = $true; returnByValue = $true } $sid
         $reply = Wait-Reply $rid 5000
-        if ($reply.result.result.value) {
-            $val = $reply.result.result.value
-            if ($val -notmatch "^WAIT:") {
-                $result = $val
-                break
-            }
+        $val = $reply.result.result.value
+        if ($val -and $val -notmatch "^WAIT:") {
+            $result = $val
+            break
         }
     }
 
@@ -153,9 +156,6 @@ for ($i = 0; $i -lt $Total; $i++) {
         Write-Host "FEHLER ($result)" -ForegroundColor Red
         $Fail++
     }
-    
-    # Tab wieder schließen
-    Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
 
 Write-Host ""
@@ -164,8 +164,8 @@ Write-Host "  Ergebnis: $Success OK / $Fail Fehler" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 if ($Success -gt 0) {
-    # Am Ende einen Tab mit dem Warenkorb öffnen
-    Send-Cdp "Target.createTarget" @{ url = "https://bandcamp.com/cart" } | Out-Null
+    Write-Host "Öffne Warenkorb..."
+    Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $sid | Out-Null
 }
 
 Write-Host ""
