@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Incognito Edition)
+# Bandcamp Auto-Cart (Price Turbo Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -63,11 +63,16 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 }
 
 # --- START ---
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Price Fix Edition)" -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+
+# Browser im Inkognito-Modus starten
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
-    # Wir starten im Inkognito-Modus für eine frische Session
-    Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile --no-first-run"
+    Write-Host "Starte Browser (Inkognito)..."
+    Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile-new --no-first-run"
     Start-Sleep -Seconds 3
 }
 
@@ -87,24 +92,30 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
     $sid = $ar.result.sessionId
     
     $result = "TIMEOUT"
+    $detectedPrice = "0.00"
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt 20000) {
         Start-Sleep -Milliseconds 800
         $js = @"
 (async () => {
     try {
-        const h = document.documentElement.innerHTML;
+        if (!document.body) return null;
+        
+        // 1. ID Erkennung
         const id = (window.TralbumData && window.TralbumData.id) || 
                    (document.querySelector('[data-item-id]')?.dataset.itemId) ||
-                   (h.match(/\"item_id\":\s*(\d+)/)?.[1]);
+                   (document.documentElement.innerHTML.match(/\"item_id\":\s*(\d+)/)?.[1]);
         if (!id) return null;
         
+        // 2. PREIS Erkennung (verbessert)
         let price = 0;
-        if (window.TralbumData && window.TralbumData.current) {
-            price = window.TralbumData.current.price || 0;
-        } else {
-            const mp = h.match(/\"price\":\s*([\d.]+)/);
-            if (mp) price = parseFloat(mp[1]);
+        if (window.TralbumData) {
+            price = window.TralbumData.minimum_price || 
+                    (window.TralbumData.current && window.TralbumData.current.price) || 0;
+        }
+        if (price === 0) {
+            const metaPrice = document.querySelector('meta[itemprop="price"]');
+            if (metaPrice) price = parseFloat(metaPrice.content);
         }
         
         const type = window.location.href.includes('/album/') ? 'a' : 't';
@@ -114,18 +125,31 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
             body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=0'
         });
         const d = await res.json();
-        if (d && (d.id || d.resync === true || d.ok === true)) return 'OK';
+        if (d && (d.id || d.resync === true || d.ok === true)) return 'OK:' + price;
         return 'ERR:' + JSON.stringify(d);
     } catch(e) { return 'ERR:' + e.message; }
 })()
 "@
         $rid = Send-Cdp "Runtime.evaluate" @{ expression = $js; awaitPromise = $true; returnByValue = $true } $sid
         $reply = Wait-Reply $rid 5000
-        if ($reply.result.result.value) { $result = $reply.result.result.value; break }
+        $val = $reply.result.result.value
+        if ($val -and $val -like "OK:*") {
+            $result = "OK"
+            $detectedPrice = $val.Replace("OK:", "")
+            break
+        } elseif ($val -and $val -like "ERR:*") {
+            $result = $val
+            break
+        }
     }
 
-    if ($result -eq "OK") { Write-Host "OK" -ForegroundColor Green; $Success++ }
-    else { Write-Host "FEHLER ($($result.Substring(0, [Math]::Min(50, $result.Length))) ...)" -ForegroundColor Red; $Fail++ }
+    if ($result -eq "OK") {
+        Write-Host "OK (Preis: $detectedPrice)" -ForegroundColor Green
+        $Success++
+    } else {
+        Write-Host "FEHLER ($result)" -ForegroundColor Red
+        $Fail++
+    }
     Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
 
