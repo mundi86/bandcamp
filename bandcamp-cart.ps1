@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Price Detection Edition)
+# Bandcamp Auto-Cart (Incognito Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -66,7 +66,8 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
-    Start-Process $BrowserPath "--remote-debugging-port=9222 --user-data-dir=$env:TEMP\bc-cart-profile --no-first-run"
+    # Wir starten im Inkognito-Modus für eine frische Session
+    Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile --no-first-run"
     Start-Sleep -Seconds 3
 }
 
@@ -93,14 +94,11 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 (async () => {
     try {
         const h = document.documentElement.innerHTML;
-        
-        // ID Erkennung
         const id = (window.TralbumData && window.TralbumData.id) || 
                    (document.querySelector('[data-item-id]')?.dataset.itemId) ||
-                   (h.match(/item[-_]id[:"]{1,2}\s*(\d+)/i)?.[1]);
+                   (h.match(/\"item_id\":\s*(\d+)/)?.[1]);
         if (!id) return null;
         
-        // PREIS Erkennung
         let price = 0;
         if (window.TralbumData && window.TralbumData.current) {
             price = window.TralbumData.current.price || 0;
