@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bandcamp Auto-Cart (Fast Parallel Version)
+# Bandcamp Auto-Cart (Reliable Parallel Edition)
 # Benötigt: Chrome + Node.js (v22+)
 
 set -o pipefail
@@ -35,14 +35,14 @@ const concurrency = parseInt(process.argv[4] || "5");
 
 function httpGet(url) {
   return new Promise((resolve, reject) => {
-    http.get(url, res => {
+    http.get(`http://127.0.0.1:${port}/json/version`, res => {
       let data = ""; res.on("data", c => data += c); res.on("end", () => resolve(JSON.parse(data)));
     }).on("error", reject);
   });
 }
 
 async function main() {
-  const ver = await httpGet(`http://127.0.0.1:${port}/json/version`);
+  const ver = await httpGet();
   const ws = new WebSocket(ver.webSocketDebuggerUrl);
   let msgId = 100;
   const pending = {};
@@ -59,6 +59,10 @@ async function main() {
   });
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await new Promise(r => { ws.onopen = r; });
+
+  // 1. Keep-Alive Tab erstellen (damit Chrome nicht schließt)
+  const mainTab = await send("Target.createTarget", { url: "about:blank" });
+  const mainTid = mainTab.result.targetId;
 
   let index = 0;
   let success = 0, fail = 0;
@@ -79,7 +83,7 @@ async function main() {
       await send("Page.navigate", { url }, sid);
 
       let val = "TIMEOUT";
-      for (let t = 0; t < 20; t++) {
+      for (let t = 0; t < 25; t++) {
         await sleep(800);
         const r = await send("Runtime.evaluate", {
           expression: `(async () => {
@@ -111,14 +115,22 @@ async function main() {
   await Promise.all(workers);
 
   console.log("\nErgebnis: " + success + " OK / " + fail + " Fehler");
-  if (success > 0) await send("Target.createTarget", { url: "https://bandcamp.com/cart" });
+  
+  if (success > 0) {
+    console.log("\nÖffne Warenkorb...");
+    const ar = await send("Target.attachToTarget", { targetId: mainTid, flatten: true });
+    await send("Page.navigate", { url: "https://bandcamp.com/cart" }, ar.result.sessionId);
+  } else {
+    // Falls nichts im Korb ist, können wir den Keep-Alive Tab schließen
+    await send("Target.closeTarget", { targetId: mainTid });
+  }
 }
 main().catch(e => { console.error(e); process.exit(1); });
 NODEEOF
 
 # --- START ---
 echo "=========================================="
-echo "  Bandcamp -> Warenkorb (Parallel v2.0)"
+echo "  Bandcamp -> Warenkorb (Parallel v2.1)"
 echo "=========================================="
 
 if ! curl -s "http://127.0.0.1:9222/json/version" &>/dev/null; then
@@ -129,4 +141,5 @@ fi
 URLS_JSON="["$(printf '"%s",' "${URLS[@]}" | sed 's/,$//')"]"
 node "$TMP_JS" "9222" "$URLS_JSON" "$CONCURRENCY"
 rm -f "$TMP_JS"
-read -p "Enter zum Beenden..."
+echo ""
+read -p "Fertig. Enter zum Beenden..."
