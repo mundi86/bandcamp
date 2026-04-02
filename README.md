@@ -24,6 +24,8 @@
 | **Linux** | `bandcamp-cart.sh` | ❌ Nein (bash & curl sind vorinstalliert) |
 | **Windows + Bash** | `bandcamp-cart.sh` | [Git Bash](https://git-scm.com/downloads) |
 
+> 💡 **Windows + Bash?** Prüfe ob Git Bash installiert ist: `git --version` in PowerShell eingeben. Falls eine Version erscheint, ist es bereits da. Falls nicht: [git-scm.com/downloads](https://git-scm.com/downloads)
+
 ---
 
 ## 📁 Dateien
