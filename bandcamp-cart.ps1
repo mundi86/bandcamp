@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 # Bandcamp Auto-Cart (Fast Parallel Version)
-# Keine Installation nÃ¶tig â€” nur Chrome/Edge + PowerShell.
+# Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -85,7 +85,7 @@ Write-Host "Titel:   $($Urls.Count)"
 Write-Host "Worker:  $Concurrency"
 Write-Host ""
 
-# Browser prÃ¼fen/starten
+# Browser prüfen/starten
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
@@ -120,7 +120,7 @@ while ($UrlIndex -lt $Urls.Count -or $Jobs.Count -gt 0) {
         }
     }
 
-    # Aktive Jobs prÃ¼fen
+    # Aktive Jobs prüfen
     $completed = @()
     foreach ($job in $Jobs) {
         $js = @"
@@ -145,7 +145,8 @@ while ($UrlIndex -lt $Urls.Count -or $Jobs.Count -gt 0) {
                 Write-Host "[$($job.num)/$($Urls.Count)] $($job.label) ... OK" -ForegroundColor Green
                 $Success++
             } else {
-                Write-Host "[$($job.num)/$($Urls.Count)] $($job.label) ... FEHLER ($($val ?: 'Timeout'))" -ForegroundColor Red
+                $errDetail = if ($val) { $val } else { 'Timeout' }
+                Write-Host "[$($job.num)/$($Urls.Count)] $($job.label) ... FEHLER ($errDetail)" -ForegroundColor Red
                 $Fail++
             }
             Send-Cdp "Target.closeTarget" @{ targetId = $job.tid } | Out-Null
@@ -170,4 +171,3 @@ if ($Success -gt 0) {
 Write-Host ""
 Write-Host "Browser offen lassen -> Checkout klicken!"
 Read-Host "Enter zum Beenden"
-
