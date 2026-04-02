@@ -1,8 +1,6 @@
 #!/bin/bash
-# Bandcamp Auto-Cart (Fast Parallel Version)
-# BenÃ¶tigt: Chrome + Node.js (v22+)
-#
-# AusfÃ¼hren: bash bandcamp-cart.sh
+# Bandcamp Auto-Cart (Turbo Edition)
+# Benötigt: Chrome + Node.js (v22+)
 
 set -o pipefail
 
@@ -10,72 +8,37 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LINK_FILE="${SCRIPT_DIR}/bandcamp.txt"
 DEBUG_PORT=9222
 TMP_JS="${TEMP:-/tmp}/bc_helper_$(date +%s).js"
-CONCURRENCY=5
 
 # --- URLs laden ---
-if [ ! -f "$LINK_FILE" ]; then
-  echo "FEHLER: bandcamp.txt nicht gefunden!"
-  read -p "Enter zum Beenden..."; exit 1
-fi
-
+[ ! -f "$LINK_FILE" ] && { echo "FEHLER: bandcamp.txt fehlt!"; exit 1; }
 URLS=()
 while IFS= read -r line; do
   line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-  [ -z "$line" ] && continue
-  [[ "$line" == \#* ]] && continue
-  URLS+=("$line")
+  [ -z "$line" ] || [[ "$line" == \#* ]] || URLS+=("$line")
 done < "$LINK_FILE"
+[ ${#URLS[@]} -eq 0 ] && { echo "FEHLER: Keine URLs!"; exit 1; }
 
-if [ ${#URLS[@]} -eq 0 ]; then
-  echo "FEHLER: Keine URLs in bandcamp.txt!"
-  read -p "Enter zum Beenden..."; exit 1
-fi
-
-# --- Node.js prÃ¼fen ---
-if ! command -v node &>/dev/null; then
-  echo "FEHLER: Node.js ist nicht installiert!"
-  read -p "Enter zum Beenden..."; exit 1
-fi
-
-# --- Chrome finden ---
-CHROME=""
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  CHROME=$(command -v google-chrome 2>/dev/null || command -v google-chrome-stable 2>/dev/null || command -v chromium-browser 2>/dev/null || command -v chromium 2>/dev/null)
-else
-  CHROME="/c/Program Files/Google/Chrome/Application/chrome.exe"
-  [ ! -f "$CHROME" ] && CHROME="$LOCALAPPDATA/Google/Chrome/Application/chrome.exe"
-fi
-
-if [ -z "$CHROME" ] || [ ! -f "$CHROME" ]; then
-  echo "FEHLER: Chrome nicht gefunden!"
-  read -p "Enter zum Beenden..."; exit 1
-fi
+# --- Node.js & Chrome finden ---
+command -v node &>/dev/null || { echo "FEHLER: Node.js fehlt!"; exit 1; }
+CHROME="/c/Program Files/Google/Chrome/Application/chrome.exe"
+[ ! -f "$CHROME" ] && CHROME="$LOCALAPPDATA/Google/Chrome/Application/chrome.exe"
+[ ! -f "$CHROME" ] && CHROME=$(command -v google-chrome || command -v chromium)
 
 # --- Node.js CDP Helper ---
 cat << 'NODEEOF' > "$TMP_JS"
 const WebSocket = global.WebSocket || (typeof WebSocket !== "undefined" ? WebSocket : null);
 const http = require("http");
-
 const port = process.argv[2] || 9222;
 const urls = JSON.parse(process.argv[3] || "[]");
-const concurrency = parseInt(process.argv[4] || "3");
-
-function httpGet(url) {
-  return new Promise((resolve, reject) => {
-    http.get(url, res => {
-      let data = "";
-      res.on("data", c => data += c);
-      res.on("end", () => resolve(JSON.parse(data)));
-    }).on("error", reject);
-  });
-}
 
 async function main() {
-  const ver = await httpGet(`http://127.0.0.1:${port}/json/version`);
+  const ver = await new Promise((res, rej) => {
+    http.get(`http://127.0.0.1:${port}/json/version`, r => {
+      let d = ""; r.on("data", c => d += c); r.on("end", () => res(JSON.parse(d)));
+    }).on("error", rej);
+  });
+  
   const ws = new WebSocket(ver.webSocketDebuggerUrl);
-
   let msgId = 100;
   const pending = {};
   ws.onmessage = (e) => {
@@ -90,116 +53,74 @@ async function main() {
     ws.send(JSON.stringify(msg));
   });
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
   await new Promise(r => { ws.onopen = r; });
 
   let success = 0, fail = 0;
-  let active = 0;
-  let index = 0;
+  const cr = await send("Target.createTarget", { url: "about:blank" });
+  const tid = cr.result.targetId;
+  const ar = await send("Target.attachToTarget", { targetId: tid, flatten: true });
+  const sid = ar.result.sessionId;
+  await send("Runtime.enable", {}, sid);
 
-  async function processNext() {
-    if (index >= urls.length) return;
-    const i = index++;
+  for (let i = 0; i < urls.length; i++) {
     const url = urls[i].trim();
     const num = i + 1;
     const label = url.split("/").pop();
+    process.stdout.write(`[${num}/${urls.length}] ${label} ... `);
 
-    try {
-      // Tab erstellen & Attach
-      const cr = await send("Target.createTarget", { url: "about:blank" });
-      const targetId = cr.result.targetId;
-      const ar = await send("Target.attachToTarget", { targetId, flatten: true });
-      const sid = ar.result.sessionId;
-
-      await send("Runtime.enable", {}, sid);
-      await send("Page.navigate", { url }, sid);
-
-      // Dynamisch auf item_id warten (max 10s)
-      let val = "ERR:timeout";
-      for (let t = 0; t < 20; t++) {
-        await sleep(500);
-        const r = await send("Runtime.evaluate", {
-          expression: `(async () => {
-            const m = document.documentElement.innerHTML.match(/item[-_]id.{0,10}?(\\d{5,})/);
-            if (!m) return null;
-            const r = await fetch(window.location.origin + '/cart/cb', {
+    await send("Page.navigate", { url }, sid);
+    
+    let result = "TIMEOUT";
+    for (let t = 0; t < 30; t++) { // Max 15 Sek.
+      await sleep(500);
+      const r = await send("Runtime.evaluate", {
+        expression: `(async () => {
+          try {
+            const id = (window.TralbumData && window.TralbumData.id) || 
+                       (document.querySelector('[data-item-id]')?.dataset.itemId) ||
+                       (document.documentElement.innerHTML.match(/\"item_id\":\\s*(\\d+)/)?.[1]);
+            if (!id) return null;
+            
+            const type = window.location.href.includes('/album/') ? 'a' : 't';
+            const res = await fetch(window.location.origin + '/cart/cb', {
               method: 'POST',
               headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-              body: 'req=add&item_type=' + (window.location.href.includes('/album/') ? 'a' : 't') + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc'+Date.now()+'&sync_num=${num}&cart_length=0'
+              body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=0&quantity=1&local_id=lc'+Date.now()+'&sync_num=${num}&cart_length=${i}'
             });
-            const d = await r.json();
-            return d.id ? 'OK:' + d.id : 'ERR:' + (d.error_message || 'unknown');
-          })()`,
-          awaitPromise: true,
-          returnByValue: true
-        }, sid);
-        
-        const res = r.result?.result?.value;
-        if (res) { val = res; break; }
-      }
-
-      if (val.startsWith("OK:")) {
-        console.log(`[${num}/${urls.length}] ${label} ... OK`);
-        success++;
-      } else {
-        console.log(`[${num}/${urls.length}] ${label} ... FEHLER (${val})`);
-        fail++;
-      }
-
-      await send("Target.closeTarget", { targetId });
-    } catch (e) {
-      console.log(`[${num}/${urls.length}] ${label} ... CRASH (${e.message})`);
-      fail++;
+            const data = await res.json();
+            return data.id ? 'OK' : 'ERR:' + (data.error_message || JSON.stringify(data));
+          } catch(e) { return 'ERR:' + e.message; }
+        })()`,
+        awaitPromise: true, returnByValue: true
+      }, sid);
+      
+      const val = r.result?.result?.value;
+      if (val) { result = val; break; }
     }
+
+    if (result === "OK") { console.log("OK"); success++; }
+    else { console.log("FEHLER (" + result + ")"); fail++; }
   }
-
-  const workers = Array(Math.min(concurrency, urls.length)).fill(0).map(async () => {
-    while (index < urls.length) await processNext();
-  });
-
-  await Promise.all(workers);
 
   console.log(`\n==========================================`);
   console.log(`  Ergebnis: ${success} OK / ${fail} Fehler`);
   console.log(`==========================================\n`);
-
-  if (success > 0) {
-    const cr = await send("Target.createTarget", { url: "https://bandcamp.com/cart" });
-  }
+  if (success > 0) await send("Page.navigate", { url: "https://bandcamp.com/cart" }, sid);
 }
-
 main().catch(e => { console.error(e); process.exit(1); });
 NODEEOF
 
-# ==========================================
-#   START
-# ==========================================
+# --- START ---
 echo "=========================================="
-echo "  Bandcamp -> Warenkorb (FAST & PARALLEL)"
+echo "  Bandcamp -> Warenkorb (Turbo Mode)"
 echo "=========================================="
-echo "Quelle: bandcamp.txt"
-echo "Titel:  ${#URLS[@]}"
-echo "Worker: $CONCURRENCY"
-echo ""
 
-if ! curl -s "http://127.0.0.1:${DEBUG_PORT}/json/version" &>/dev/null; then
-  "$CHROME" --remote-debugging-port=$DEBUG_PORT --user-data-dir="${TEMP:-/tmp}/bc-cart-profile" &>/dev/null &
-  echo -n "Starte Chrome..."
-  READY=0
-  for i in $(seq 1 30); do
-    sleep 0.5
-    if curl -s "http://127.0.0.1:${DEBUG_PORT}/json/version" &>/dev/null; then
-      READY=1; break
-    fi
-  done
-  [ $READY -eq 0 ] && { echo " FEHLER"; rm -f "$TMP_JS"; exit 1; }
-  echo " OK"
+if ! curl -s "http://127.0.0.1:9222/json/version" &>/dev/null; then
+  "$CHROME" --remote-debugging-port=9222 --user-data-dir="${TEMP:-/tmp}/bc-cart-profile" &>/dev/null &
+  sleep 2
 fi
 
 URLS_JSON="["$(printf '"%s",' "${URLS[@]}" | sed 's/,$//')"]"
-node "$TMP_JS" "$DEBUG_PORT" "$URLS_JSON" "$CONCURRENCY"
+node "$TMP_JS" "9222" "$URLS_JSON"
 rm -f "$TMP_JS"
-
-echo ""
 read -p "Enter zum Beenden..."
-
