@@ -12,16 +12,19 @@
 
 ## 📋 Voraussetzungen
 
-| 🛠️ Tool | 📝 Beschreibung |
-|---------|----------------|
-| [Git Bash](https://git-scm.com/downloads) | Wird für die Ausführung benötigt |
-| `curl` | Ist in Git Bash bereits enthalten ✅ |
+| 📁 Script | 🛠️ Benötigt | 💻 Plattform |
+|-----------|-------------|-------------|
+| `bandcamp-cart.ps1` | **Nichts** ✅ | Windows (vorinstalliert) |
+| `bandcamp-cart.sh` | [Git Bash](https://git-scm.com/downloads) | Windows / Linux / Mac |
+
+> 💡 **Empfehlung:** Die `.ps1` (PowerShell) Version — läuft sofort ohne Installation!
 
 ## 📁 Struktur
 
 ```
 bandcam.com/
-├── bandcamp-cart.sh   🤖 Das Script
+├── bandcamp-cart.ps1  🤖 PowerShell-Script (empfohlen)
+├── bandcamp-cart.sh   🐧 Bash-Script (Linux/Mac/Git Bash)
 ├── bandcamp.txt       🔗 Deine Bandcamp-URLs
 └── README.md          📖 Diese Datei
 ```
@@ -40,10 +43,15 @@ https://rumbarrecords.bandcamp.com/track/bye-bye-love
 
 ### 2️⃣ Script starten
 
-**Option A — Doppelklick:**
-🖱️ Einfach auf `bandcamp-cart.sh` doppelklicken (öffnet Git Bash)
+**Option A — PowerShell (empfohlen, keine Installation):**
+🖱️ Rechtsklick auf `bandcamp-cart.ps1` → **Mit PowerShell ausführen**
 
-**Option B — Terminal:**
+> ⚠️ Falls es nicht startet: PowerShell öffnen und eingeben:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File bandcamp-cart.ps1
+> ```
+
+**Option B — Bash (Git Bash oder Linux/Mac):**
 ```bash
 bash bandcamp-cart.sh
 ```
