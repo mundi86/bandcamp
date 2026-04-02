@@ -146,6 +146,6 @@ Titel:  10
 
 ## 📝 Lizenz
 
-🆓 Kostenlos — mach damit was du willst!
+[MIT License](LICENSE) — kostenlos, open source, mach damit was du willst! 🆓
 
 🎶 Viel Spaß beim Musik kaufen! 🎶
