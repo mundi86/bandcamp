@@ -1,89 +1,90 @@
-# 🎵 Bandcamp Auto-Cart (Parallel Edition)
+# ðŸŽµ Bandcamp Auto-Cart (Parallel Edition)
 
-> 🛒 Automatisch Tracks & Alben von Bandcamp in den Warenkorb legen — blitzschnell & parallel!
-
----
-
-## ✨ Features
-
-- 🚀 **Parallelverarbeitung** — Verarbeitet bis zu 5 Links gleichzeitig (Worker-Pool)
-- ⚡ **Turbo-Modus** — Fügt Items zum Warenkorb hinzu, sobald die ID im HTML erscheint (kein Warten auf Bilder/Werbung)
-- 🔒 **Ohne Anmeldung** — Login erst beim Checkout im Browser nötig
-- 📂 **Einfache Konfiguration** — Eine `bandcamp.txt` mit URLs, eine pro Zeile
-- 🌐 **Tracks & Alben** — Beides wird automatisch erkannt
-- 🛍️ **Auto-Checkout** — Öffnet den Warenkorb am Ende automatisch im Browser
-- 💻 **Plattformübergreifend** — Windows, Mac & Linux
+> ðŸ›’ Automatisch Tracks & Alben von Bandcamp in den Warenkorb legen â€” blitzschnell & parallel!
 
 ---
 
-## 📋 Voraussetzungen
+## âœ¨ Features
 
-| 💻 System | 📜 Script | 🛠️ Installation nötig? |
+- ðŸš€ **Parallelverarbeitung** â€” Verarbeitet bis zu 5 Links gleichzeitig (Worker-Pool)
+- âš¡ **Turbo-Modus** â€” FÃ¼gt Items zum Warenkorb hinzu, sobald die ID im HTML erscheint (kein Warten auf Bilder/Werbung)
+- ðŸ”’ **Ohne Anmeldung** â€” Login erst beim Checkout im Browser nÃ¶tig
+- ðŸ“‚ **Einfache Konfiguration** â€” Eine `bandcamp.txt` mit URLs, eine pro Zeile
+- ðŸŒ **Tracks & Alben** â€” Beides wird automatisch erkannt
+- ðŸ›ï¸ **Auto-Checkout** â€” Ã–ffnet den Warenkorb am Ende automatisch im Browser
+- ðŸ’» **PlattformÃ¼bergreifend** â€” Windows, Mac & Linux
+
+---
+
+## ðŸ“‹ Voraussetzungen
+
+| ðŸ’» System | ðŸ“œ Script | ðŸ› ï¸ Installation nÃ¶tig? |
 |----------|----------|----------------------|
-| **Windows** | `bandcamp-cart.ps1` | ✔️ Chrome oder Edge erforderlich |
-| **Mac** | `bandcamp-cart.sh` | 🟢 [Node.js v22+](https://nodejs.org) erforderlich |
-| **Linux** | `bandcamp-cart.sh` | 🟢 [Node.js v22+](https://nodejs.org) erforderlich |
+| **Windows** | `bandcamp-cart.ps1` | âœ”ï¸ Chrome oder Edge erforderlich |
+| **Mac** | `bandcamp-cart.sh` | ðŸŸ¢ [Node.js v22+](https://nodejs.org) erforderlich |
+| **Linux** | `bandcamp-cart.sh` | ðŸŸ¢ [Node.js v22+](https://nodejs.org) erforderlich |
 
 ---
 
-## 📂 Dateien
+## ðŸ“‚ Dateien
 
 ```
 bandcam.com/
-├── bandcamp-cart.ps1  ⚡ PowerShell-Script (Windows)
-├── bandcamp-cart.sh   🚀 Bash-Script (Mac / Linux / Git Bash)
-├── bandcamp.txt       🔗 Deine Bandcamp-URLs
-└── README.md          📖 Dokumentation
+â”œâ”€â”€ bandcamp-cart.ps1  âš¡ PowerShell-Script (Windows)
+â”œâ”€â”€ bandcamp-cart.sh   ðŸš€ Bash-Script (Mac / Linux / Git Bash)
+â”œâ”€â”€ bandcamp.txt       ðŸ”— Deine Bandcamp-URLs
+â””â”€â”€ README.md          ðŸ“– Dokumentation
 ```
 
 ---
 
-## 🚀 Los geht's
+## ðŸš€ Los geht's
 
-### 1️⃣ URLs in `bandcamp.txt` eintragen
+### 1ï¸âƒ£ URLs in `bandcamp.txt` eintragen
 
-Füge deine Bandcamp-Links in die `bandcamp.txt` ein — **eine URL pro Zeile**:
+FÃ¼ge deine Bandcamp-Links in die `bandcamp.txt` ein â€” **eine URL pro Zeile**:
 
 ```text
 https://artist.bandcamp.com/track/song-name
 https://artist.bandcamp.com/album/album-name
 ```
 
-### 2️⃣ Script starten
+### 2ï¸âƒ£ Script starten
 
-**🪟 Windows:**
+**ðŸªŸ Windows:**
 
-Rechtsklick auf `bandcamp-cart.ps1` → **Mit PowerShell ausführen**
+Rechtsklick auf `bandcamp-cart.ps1` â†’ **Mit PowerShell ausfÃ¼hren**
 
-Oder über die Konsole:
+Oder Ã¼ber die Konsole:
 ```powershell
 powershell -ExecutionPolicy Bypass -File bandcamp-cart.ps1
 ```
 
-**🍎 Mac / 🐧 Linux:**
+**ðŸŽ Mac / ðŸ§ Linux:**
 
-Stelle sicher, dass Node.js installiert ist (`node -v` sollte v22 oder höher zeigen).
+Stelle sicher, dass Node.js installiert ist (`node -v` sollte v22 oder hÃ¶her zeigen).
 ```bash
 bash bandcamp-cart.sh
 ```
 
-### 3️⃣ Bezahlen
+### 3ï¸âƒ£ Bezahlen
 
-🛒 Der Warenkorb öffnet sich automatisch → **Checkout** klicken → fertig!
+ðŸ›’ Der Warenkorb Ã¶ffnet sich automatisch â†’ **Checkout** klicken â†’ fertig!
 
 ---
 
-## ⚙️ Ablauf (Technisch)
+## âš™ï¸ Ablauf (Technisch)
 
 1. **Browser-Control**: Das Script verbindet sich per **Chrome DevTools Protocol (CDP)** mit einem Browser-Fenster.
-2. **Worker-Pool**: Es werden 5 parallele Tabs geöffnet.
+2. **Worker-Pool**: Es werden 5 parallele Tabs geÃ¶ffnet.
 3. **Aggressives Polling**: Sobald die `item_id` im DOM der Seite auftaucht, wird der Warenkorb-POST-Request abgesetzt.
 4. **Zentralisierung**: Alle Items landen in derselben anonymen Session im Browser.
 
 ---
 
-## 📜 Lizenz
+## ðŸ“œ Lizenz
 
-[MIT License](LICENSE) — kostenlos, open source.
+[MIT License](LICENSE) â€” kostenlos, open source.
 
-🎶 Viel Spaß beim Musik kaufen! 🎶
+ðŸŽ¶ Viel SpaÃŸ beim Musik kaufen! ðŸŽ¶
+

@@ -1,8 +1,8 @@
 #!/bin/bash
 # Bandcamp Auto-Cart (Fast Parallel Version)
-# Benötigt: Chrome + Node.js (v22+)
+# BenÃ¶tigt: Chrome + Node.js (v22+)
 #
-# Ausführen: bash bandcamp-cart.sh
+# AusfÃ¼hren: bash bandcamp-cart.sh
 
 set -o pipefail
 
@@ -31,7 +31,7 @@ if [ ${#URLS[@]} -eq 0 ]; then
   read -p "Enter zum Beenden..."; exit 1
 fi
 
-# --- Node.js prüfen ---
+# --- Node.js prÃ¼fen ---
 if ! command -v node &>/dev/null; then
   echo "FEHLER: Node.js ist nicht installiert!"
   read -p "Enter zum Beenden..."; exit 1
@@ -202,3 +202,4 @@ rm -f "$TMP_JS"
 
 echo ""
 read -p "Enter zum Beenden..."
+
