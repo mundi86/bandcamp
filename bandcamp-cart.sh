@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bandcamp Auto-Cart (Reliable Turbo Edition)
+# Bandcamp Auto-Cart (Fast Parallel Version)
 # Benötigt: Chrome + Node.js (v22+)
 
 set -o pipefail
@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LINK_FILE="${SCRIPT_DIR}/bandcamp.txt"
 DEBUG_PORT=9222
 TMP_JS="${TEMP:-/tmp}/bc_helper_$(date +%s).js"
+CONCURRENCY=5
 
 # --- URLs laden ---
 [ ! -f "$LINK_FILE" ] && { echo "FEHLER: bandcamp.txt fehlt!"; exit 1; }
@@ -30,14 +31,18 @@ const WebSocket = global.WebSocket || (typeof WebSocket !== "undefined" ? WebSoc
 const http = require("http");
 const port = process.argv[2] || 9222;
 const urls = JSON.parse(process.argv[3] || "[]");
+const concurrency = parseInt(process.argv[4] || "5");
+
+function httpGet(url) {
+  return new Promise((resolve, reject) => {
+    http.get(url, res => {
+      let data = ""; res.on("data", c => data += c); res.on("end", () => resolve(JSON.parse(data)));
+    }).on("error", reject);
+  });
+}
 
 async function main() {
-  const ver = await new Promise((res, rej) => {
-    http.get(`http://127.0.0.1:${port}/json/version`, r => {
-      let d = ""; r.on("data", c => d += c); r.on("end", () => res(JSON.parse(d)));
-    }).on("error", rej);
-  });
-  
+  const ver = await httpGet(`http://127.0.0.1:${port}/json/version`);
   const ws = new WebSocket(ver.webSocketDebuggerUrl);
   let msgId = 100;
   const pending = {};
@@ -55,91 +60,73 @@ async function main() {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await new Promise(r => { ws.onopen = r; });
 
+  let index = 0;
   let success = 0, fail = 0;
-  // Wir nutzen einen persistenten Tab für alle Navigationsvorgänge
-  const cr = await send("Target.createTarget", { url: "about:blank" });
-  const tid = cr.result.targetId;
-  const ar = await send("Target.attachToTarget", { targetId: tid, flatten: true });
-  const sid = ar.result.sessionId;
-  await send("Runtime.enable", {}, sid);
 
-  for (let i = 0; i < urls.length; i++) {
+  async function processNext() {
+    if (index >= urls.length) return;
+    const i = index++;
     const url = urls[i].trim();
     const num = i + 1;
     const label = url.split("/").pop();
-    process.stdout.write(`[${num}/${urls.length}] ${label} ... `);
 
-    await send("Page.navigate", { url }, sid);
-    
-    let result = "TIMEOUT";
-    for (let t = 0; t < 40; t++) { // Max 20 Sek.
-      await sleep(500);
-      const r = await send("Runtime.evaluate", {
-        expression: `(async () => {
-          try {
-            if (!document.body) return null;
-            
-            // ID Suche
-            let id = null;
-            if (window.TralbumData && window.TralbumData.id) id = window.TralbumData.id;
-            if (!id) {
-               const m = document.documentElement.innerHTML.match(/\"item_id\":\\s*(\\d+)/) || 
-                         document.documentElement.innerHTML.match(/data-item-id=\"(\\d+)\"/) ||
-                         document.documentElement.innerHTML.match(/item[-_]id.{0,10}?(\\d{5,})/);
-               if (m) id = m[1];
-            }
-            if (!id) return null;
-            
-            const type = window.location.href.includes('/album/') ? 'a' : 't';
+    try {
+      const cr = await send("Target.createTarget", { url: "about:blank" });
+      const tid = cr.result.targetId;
+      const ar = await send("Target.attachToTarget", { targetId: tid, flatten: true });
+      const sid = ar.result.sessionId;
+      await send("Runtime.enable", {}, sid);
+      await send("Page.navigate", { url }, sid);
+
+      let val = "TIMEOUT";
+      for (let t = 0; t < 20; t++) {
+        await sleep(800);
+        const r = await send("Runtime.evaluate", {
+          expression: `(async () => {
+            const h = document.documentElement.innerHTML;
+            const m = h.match(/\"item_id\":\\s*(\\d+)/) || h.match(/data-item-id=\"(\\d+)\"/) || h.match(/item[-_]id.{0,10}?(\\d{5,})/);
+            if (!m) return null;
             const res = await fetch(window.location.origin + '/cart/cb', {
               method: 'POST',
               headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-              body: 'req=add&item_type=' + type + '&item_id=' + id + '&quantity=1&local_id=lc'+Date.now()
+              body: 'req=add&item_type=' + (window.location.href.includes('/album/') ? 'a' : 't') + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=0'
             });
             const data = await res.json();
-            return data.id ? 'OK' : 'ERR:' + (data.error_message || JSON.stringify(data));
-          } catch(e) { return 'ERR:' + e.message; }
-        })()`,
-        awaitPromise: true, returnByValue: true
-      }, sid);
-      
-      const val = r.result?.result?.value;
-      if (val) { result = val; break; }
-    }
+            return data.id ? 'OK' : 'ERR:' + JSON.stringify(data);
+          })()`,
+          awaitPromise: true, returnByValue: true
+        }, sid);
+        if (r.result?.result?.value) { val = r.result.result.value; break; }
+      }
 
-    if (result === "OK") { console.log("OK"); success++; }
-    else { console.log("FEHLER (" + result + ")"); fail++; }
+      if (val === "OK") { console.log("["+num+"/"+urls.length+"] " + label + " ... OK"); success++; }
+      else { console.log("["+num+"/"+urls.length+"] " + label + " ... FEHLER (" + val + ")"); fail++; }
+      await send("Target.closeTarget", { targetId: tid });
+    } catch (e) { fail++; }
   }
 
-  console.log(`\n==========================================`);
-  console.log(`  Ergebnis: ${success} OK / ${fail} Fehler`);
-  console.log(`==========================================\n`);
-  
-  if (success > 0) {
-    console.log("Öffne Warenkorb...");
-    await send("Page.navigate", { url: "https://bandcamp.com/cart" }, sid);
-    await sleep(2000);
-  }
+  const workers = Array(Math.min(concurrency, urls.length)).fill(0).map(async () => {
+    while (index < urls.length) await processNext();
+  });
+  await Promise.all(workers);
+
+  console.log("\nErgebnis: " + success + " OK / " + fail + " Fehler");
+  if (success > 0) await send("Target.createTarget", { url: "https://bandcamp.com/cart" });
 }
 main().catch(e => { console.error(e); process.exit(1); });
 NODEEOF
 
 # --- START ---
 echo "=========================================="
-echo "  Bandcamp -> Warenkorb (Turbo Mode)"
+echo "  Bandcamp -> Warenkorb (Parallel v2.0)"
 echo "=========================================="
 
-# Sicherstellen, dass Chrome läuft
 if ! curl -s "http://127.0.0.1:9222/json/version" &>/dev/null; then
-  echo "Starte Chrome..."
-  "$CHROME" --remote-debugging-port=9222 --user-data-dir="${TEMP:-/tmp}/bc-cart-profile" --no-first-run --no-default-browser-check &>/dev/null &
+  "$CHROME" --remote-debugging-port=9222 --user-data-dir="${TEMP:-/tmp}/bc-cart-profile" &>/dev/null &
   sleep 3
 fi
 
 URLS_JSON="["$(printf '"%s",' "${URLS[@]}" | sed 's/,$//')"]"
-node "$TMP_JS" "9222" "$URLS_JSON"
+node "$TMP_JS" "9222" "$URLS_JSON" "$CONCURRENCY"
 rm -f "$TMP_JS"
-
-echo ""
-echo "Script beendet. Browser bleibt für Checkout offen."
-read -p "Enter zum Beenden des Scripts..."
+read -p "Enter zum Beenden..."
