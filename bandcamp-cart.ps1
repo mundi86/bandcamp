@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Reliable Edition)
+# Bandcamp Auto-Cart (Price Detection Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -93,13 +93,27 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 (async () => {
     try {
         const h = document.documentElement.innerHTML;
-        const m = h.match(/\"item_id\":\s*(\d+)/) || h.match(/data-item-id=\"(\d+)\"/) || h.match(/item[-_]id.{0,10}?(\d{5,})/);
-        if (!m) return null;
+        
+        // ID Erkennung
+        const id = (window.TralbumData && window.TralbumData.id) || 
+                   (document.querySelector('[data-item-id]')?.dataset.itemId) ||
+                   (h.match(/item[-_]id[:"]{1,2}\s*(\d+)/i)?.[1]);
+        if (!id) return null;
+        
+        // PREIS Erkennung
+        let price = 0;
+        if (window.TralbumData && window.TralbumData.current) {
+            price = window.TralbumData.current.price || 0;
+        } else {
+            const mp = h.match(/\"price\":\s*([\d.]+)/);
+            if (mp) price = parseFloat(mp[1]);
+        }
+        
         const type = window.location.href.includes('/album/') ? 'a' : 't';
         const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'req=add&item_type=' + type + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=0'
+            body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=0'
         });
         const d = await res.json();
         if (d && (d.id || d.resync === true || d.ok === true)) return 'OK';
