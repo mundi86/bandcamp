@@ -145,9 +145,35 @@ echo "=========================================="
 
 if [ $SUCCESS -gt 0 ]; then
   echo ""
-  echo "Öffne Warenkorb zum Bezahlen..."
-  start "https://bandcamp.com/cart" 2>/dev/null || \
-    echo ">> Manuell öffnen: https://bandcamp.com/cart"
+  echo "Öffne Warenkorb (Privatmodus) zum Bezahlen..."
+  CART_URL="https://bandcamp.com/cart"
+  OPENED=0
+
+  # Mac → Chrome Incognito
+  if [ $OPENED -eq 0 ] && command -v open &>/dev/null; then
+    open -a "Google Chrome" --args --incognito "$CART_URL" 2>/dev/null && OPENED=1
+  fi
+  # Mac → Firefox Private
+  if [ $OPENED -eq 0 ] && command -v open &>/dev/null; then
+    open -a "Firefox" --args --private-window "$CART_URL" 2>/dev/null && OPENED=1
+  fi
+  # Linux → Chrome Incognito
+  if [ $OPENED -eq 0 ]; then
+    google-chrome --incognito "$CART_URL" 2>/dev/null && OPENED=1
+  fi
+  # Linux → Firefox Private
+  if [ $OPENED -eq 0 ]; then
+    firefox --private-window "$CART_URL" 2>/dev/null && OPENED=1
+  fi
+  # Windows (Git Bash) → Chrome Incognito
+  if [ $OPENED -eq 0 ]; then
+    start "" "chrome" "--incognito" "$CART_URL" 2>/dev/null && OPENED=1
+  fi
+  # Fallback → Standardbrowser
+  if [ $OPENED -eq 0 ]; then
+    start "$CART_URL" 2>/dev/null || xdg-open "$CART_URL" 2>/dev/null || \
+      echo ">> Manuell öffnen: $CART_URL"
+  fi
 fi
 
 echo ""

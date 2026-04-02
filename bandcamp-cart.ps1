@@ -151,8 +151,38 @@ Write-Host "==========================================" -ForegroundColor Cyan
 
 if ($Success -gt 0) {
     Write-Host ""
-    Write-Host "Öffne Warenkorb zum Bezahlen..." -ForegroundColor Green
-    Start-Process "https://bandcamp.com/cart"
+    Write-Host "Öffne Warenkorb (InPrivate) zum Bezahlen..." -ForegroundColor Green
+
+    $cartUrl = "https://bandcamp.com/cart"
+    $browserOpened = $false
+
+    # Chrome → Incognito
+    $chromePaths = @(
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+        "$env:LocalAppData\Google\Chrome\Application\chrome.exe"
+    )
+    foreach ($path in $chromePaths) {
+        if (Test-Path $path) {
+            Start-Process $path "--incognito $cartUrl"
+            $browserOpened = $true
+            break
+        }
+    }
+
+    # Edge → InPrivate
+    if (-not $browserOpened) {
+        $edgePath = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+        if (Test-Path $edgePath) {
+            Start-Process $edgePath "-inprivate $cartUrl"
+            $browserOpened = $true
+        }
+    }
+
+    # Fallback → Standardbrowser
+    if (-not $browserOpened) {
+        Start-Process $cartUrl
+    }
 }
 
 Write-Host ""
