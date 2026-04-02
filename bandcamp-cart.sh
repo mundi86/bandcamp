@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bandcamp Auto-Cart (Price Detection Edition)
+# Bandcamp Auto-Cart (Incognito Edition)
 # Benötigt: Chrome + Node.js (v22+)
 
 set -o pipefail
@@ -88,14 +88,11 @@ async function main() {
           expression: `(async () => {
             try {
               const h = document.documentElement.innerHTML;
-              
-              // ID Erkennung
               const id = (window.TralbumData && window.TralbumData.id) || 
                          (document.querySelector('[data-item-id]')?.dataset.itemId) ||
                          (h.match(/\"item_id\":\\s*(\\d+)/)?.[1]);
               if (!id) return null;
               
-              // PREIS Erkennung (WICHTIG für Checkout!)
               let price = 0;
               if (window.TralbumData && window.TralbumData.current) {
                 price = window.TralbumData.current.price || 0;
@@ -146,8 +143,9 @@ main().catch(e => { console.error(e); process.exit(1); });
 NODEEOF
 
 # --- START ---
+# Wir starten im Incognito-Modus, um immer einen leeren Warenkorb zu haben
 if ! curl -s "http://127.0.0.1:9222/json/version" &>/dev/null; then
-  "$CHROME" --remote-debugging-port=9222 --user-data-dir="${TEMP:-/tmp}/bc-cart-profile" &>/dev/null &
+  "$CHROME" --remote-debugging-port=9222 --incognito --user-data-dir="${TEMP:-/tmp}/bc-cart-profile" &>/dev/null &
   sleep 3
 fi
 
