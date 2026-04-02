@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Reliable Turbo Edition)
+# Bandcamp Auto-Cart (Final Reliability Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -57,8 +57,8 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
     while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
         $fullMsg = ""; $isEnd = $false
         do {
-            $buf = New-Object byte[] 131072
-            $cts = New-Object Threading.CancellationTokenSource(2000)
+            $buf = New-Object byte[] 262144 # 256KB Buffer
+            $cts = New-Object Threading.CancellationTokenSource(3000)
             try {
                 $res = $script:Ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $cts.Token).Result
                 $fullMsg += [Text.Encoding]::UTF8.GetString($buf, 0, $res.Count)
@@ -77,7 +77,7 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 #   START
 # ==========================================
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Turbo Mode)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Reliable Mode)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "Browser: $BrowserName"
 Write-Host "Titel:   $($Urls.Count)"
@@ -93,13 +93,6 @@ if (-not $portOpen) {
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Konnte keine Verbindung zum Browser herstellen." -ForegroundColor Red; exit 1 }
 
-# Einen Tab für alles nutzen
-$cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
-$tid = $cr.result.targetId
-$ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
-$sid = $ar.result.sessionId
-Send-Cdp "Runtime.enable" @{} $sid | Out-Null
-
 $Success = 0; $Fail = 0
 $Total = $Urls.Count
 
@@ -109,40 +102,48 @@ for ($i = 0; $i -lt $Total; $i++) {
     $label = ($url -split "/")[-1]
     Write-Host "[$num/$Total] $label ... " -NoNewline
 
-    Send-Cdp "Page.navigate" @{ url = $url } $sid | Out-Null
+    # Tab für diesen Link erstellen
+    $cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = $url })
+    if (-not $cr.result.targetId) { Write-Host "FEHLER (Tab-Limit?)" -ForegroundColor Red; $Fail++; continue }
     
+    $tid = $cr.result.targetId
+    $ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
+    $sid = $ar.result.sessionId
+    
+    # Polling für die ID und den Cart-Request
     $result = "TIMEOUT"
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ($sw.ElapsedMilliseconds -lt 20000) {
-        Start-Sleep -Milliseconds 500
+    while ($sw.ElapsedMilliseconds -lt 25000) {
+        Start-Sleep -Milliseconds 800
         $js = @"
 (async () => {
     try {
-        if (!document.body) return null;
-        let id = null;
-        if (window.TralbumData && window.TralbumData.id) id = window.TralbumData.id;
-        if (!id) {
-            const h = document.documentElement.innerHTML;
-            const m = h.match(/\"item_id\":\s*(\d+)/) || h.match(/data-item-id=\"(\d+)\"/) || h.match(/item[-_]id.{0,10}?(\d{5,})/);
-            if (m) id = m[1];
-        }
-        if (!id) return null;
+        if (!document.body) return "WAIT:body";
+        const id = (window.TralbumData && window.TralbumData.id) || 
+                   (document.querySelector('[data-item-id]')?.dataset.itemId) ||
+                   (document.documentElement.innerHTML.match(/item[-_]id[:"]{1,2}\s*(\d+)/i)?.[1]);
+        if (!id) return "WAIT:id";
         
         const type = window.location.href.includes('/album/') ? 'a' : 't';
         const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'req=add&item_type=' + type + '&item_id=' + id + '&quantity=1&local_id=lc'+Date.now()
+            body: 'req=add&item_type=' + type + '&item_id=' + id + '&quantity=1&local_id=lc' + Date.now()
         });
         const d = await res.json();
-        return d.id ? 'OK' : 'ERR:' + (d.error_message || JSON.stringify(d));
+        return (d && d.ok !== false) ? 'OK' : 'ERR:' + (d.error_message || JSON.stringify(d));
     } catch(e) { return 'ERR:' + e.message; }
 })()
 "@
         $rid = Send-Cdp "Runtime.evaluate" @{ expression = $js; awaitPromise = $true; returnByValue = $true } $sid
-        $reply = Wait-Reply $rid 3000
-        $val = $reply.result.result.value
-        if ($val) { $result = $val; break }
+        $reply = Wait-Reply $rid 5000
+        if ($reply.result.result.value) {
+            $val = $reply.result.result.value
+            if ($val -notmatch "^WAIT:") {
+                $result = $val
+                break
+            }
+        }
     }
 
     if ($result -eq "OK") {
@@ -152,6 +153,9 @@ for ($i = 0; $i -lt $Total; $i++) {
         Write-Host "FEHLER ($result)" -ForegroundColor Red
         $Fail++
     }
+    
+    # Tab wieder schließen
+    Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
 
 Write-Host ""
@@ -160,8 +164,8 @@ Write-Host "  Ergebnis: $Success OK / $Fail Fehler" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 if ($Success -gt 0) {
-    Write-Host "Öffne Warenkorb..."
-    Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $sid | Out-Null
+    # Am Ende einen Tab mit dem Warenkorb öffnen
+    Send-Cdp "Target.createTarget" @{ url = "https://bandcamp.com/cart" } | Out-Null
 }
 
 Write-Host ""
