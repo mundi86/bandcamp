@@ -64,7 +64,7 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 
 # --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Reliable v2.0)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Reliable v2.1)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $portOpen = $false
@@ -75,6 +75,10 @@ if (-not $portOpen) {
 }
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Browser-Verbindung fehlgeschlagen." -ForegroundColor Red; exit 1 }
+
+# 1. Keep-Alive Tab (Anchor) erstellen
+$mainCr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
+$mainTid = $mainCr.result.targetId
 
 $Success = 0; $Fail = 0
 for ($i = 0; $i -lt $Urls.Count; $i++) {
@@ -118,5 +122,13 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 }
 
 Write-Host "`nErgebnis: $Success OK / $Fail Fehler"
-if ($Success -gt 0) { Send-Cdp "Target.createTarget" @{ url = "https://bandcamp.com/cart" } | Out-Null }
-Read-Host "`nEnter zum Beenden"
+if ($Success -gt 0) {
+    Write-Host "`nÖffne Warenkorb..."
+    $arMain = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $mainTid; flatten = $true })
+    Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $arMain.result.sessionId | Out-Null
+} else {
+    Send-Cdp "Target.closeTarget" @{ targetId = $mainTid } | Out-Null
+}
+
+Write-Host "`nFertig. Browser bleibt für Checkout offen."
+Read-Host "Enter zum Beenden"
