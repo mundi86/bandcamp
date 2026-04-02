@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Final Reliability Edition)
+# Bandcamp Auto-Cart (Reliable Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -7,28 +7,18 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LinkFile  = Join-Path $ScriptDir "bandcamp.txt"
 
 # --- URLs laden ---
-if (-not (Test-Path $LinkFile)) {
-    Write-Host "FEHLER: bandcamp.txt nicht gefunden!" -ForegroundColor Red
-    Read-Host "Enter zum Beenden"; exit 1
-}
+if (-not (Test-Path $LinkFile)) { Write-Host "FEHLER: bandcamp.txt fehlt!" -ForegroundColor Red; exit 1 }
 $Urls = @(Get-Content $LinkFile | Where-Object { $_.Trim() -ne "" -and -not $_.StartsWith("#") })
-if ($Urls.Count -eq 0) {
-    Write-Host "FEHLER: Keine URLs in bandcamp.txt!" -ForegroundColor Red
-    Read-Host "Enter zum Beenden"; exit 1
-}
+if ($Urls.Count -eq 0) { Write-Host "FEHLER: Keine URLs!" -ForegroundColor Red; exit 1 }
 
 # --- Browser finden ---
 $BrowserPath = $null
-$BrowserName = ""
 @(
     @{p="${env:ProgramFiles}\Google\Chrome\Application\chrome.exe"; n="Chrome"},
     @{p="${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"; n="Chrome"},
     @{p="$env:LocalAppData\Google\Chrome\Application\chrome.exe"; n="Chrome"},
-    @{p="${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"; n="Edge"},
-    @{p="${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe"; n="Edge"}
-) | ForEach-Object {
-    if (-not $BrowserPath -and (Test-Path $_.p)) { $BrowserPath = $_.p; $BrowserName = $_.n }
-}
+    @{p="${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"; n="Edge"}
+) | ForEach-Object { if (-not $BrowserPath -and (Test-Path $_.p)) { $BrowserPath = $_.p } }
 
 # --- CDP via WebSocket ---
 $script:CdpMsgId = 1000
@@ -42,8 +32,7 @@ function Connect-Cdp {
 }
 
 function Send-Cdp([string]$method, [hashtable]$params = @{}, [string]$sid = "") {
-    $script:CdpMsgId++
-    $id = $script:CdpMsgId
+    $script:CdpMsgId++; $id = $script:CdpMsgId
     $msg = @{ id = $id; method = $method; params = $params }
     if ($sid) { $msg.sessionId = $sid }
     $json = $msg | ConvertTo-Json -Compress
@@ -73,14 +62,11 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
     return $null
 }
 
-# ==========================================
-#   START
-# ==========================================
+# --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Reliable Mode)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Reliable v2.0)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
-# Browser prüfen/starten
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
@@ -88,25 +74,17 @@ if (-not $portOpen) {
     Start-Sleep -Seconds 3
 }
 
-try { Connect-Cdp } catch { Write-Host "FEHLER: Konnte keine Verbindung zum Browser herstellen." -ForegroundColor Red; exit 1 }
-
-# Einen Tab für alles nutzen
-$cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
-$tid = $cr.result.targetId
-$ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
-$sid = $ar.result.sessionId
-Send-Cdp "Runtime.enable" @{} $sid | Out-Null
+try { Connect-Cdp } catch { Write-Host "FEHLER: Browser-Verbindung fehlgeschlagen." -ForegroundColor Red; exit 1 }
 
 $Success = 0; $Fail = 0
-$Total = $Urls.Count
+for ($i = 0; $i -lt $Urls.Count; $i++) {
+    $url = $Urls[$i].Trim(); $num = $i + 1; $label = ($url -split "/")[-1]
+    Write-Host "[$num/$($Urls.Count)] $label ... " -NoNewline
 
-for ($i = 0; $i -lt $Total; $i++) {
-    $url = $Urls[$i].Trim()
-    $num = $i + 1
-    $label = ($url -split "/")[-1]
-    Write-Host "[$num/$Total] $label ... " -NoNewline
-
-    Send-Cdp "Page.navigate" @{ url = $url } $sid | Out-Null
+    $cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = $url })
+    $tid = $cr.result.targetId
+    $ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
+    $sid = $ar.result.sessionId
     
     $result = "TIMEOUT"
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -115,59 +93,30 @@ for ($i = 0; $i -lt $Total; $i++) {
         $js = @"
 (async () => {
     try {
-        if (!document.body || !window.fetch) return "WAIT:init";
-        
-        // ID Erkennung
-        const id = (window.TralbumData && window.TralbumData.id) || 
-                   (document.querySelector('[data-item-id]')?.dataset.itemId) ||
-                   (document.documentElement.innerHTML.match(/item[-_]id[:"]{1,2}\s*(\d+)/i)?.[1]);
-        if (!id) return "WAIT:id";
-        
+        const h = document.documentElement.innerHTML;
+        const m = h.match(/\"item_id\":\s*(\d+)/) || h.match(/data-item-id=\"(\d+)\"/) || h.match(/item[-_]id.{0,10}?(\d{5,})/);
+        if (!m) return null;
         const type = window.location.href.includes('/album/') ? 'a' : 't';
-        const localId = 'lc' + Date.now();
-        
-        // Request mit vollständigen Parametern um resync:true zu vermeiden
         const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'req=add&item_type=' + type + '&item_id=' + id + '&quantity=1&local_id=' + localId + '&sync_num=' + ($i + 1) + '&cart_length=' + $i
+            body: 'req=add&item_type=' + type + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=0'
         });
-        
         const d = await res.json();
-        // Falls d.id vorhanden ist ODER d.resync:true (was oft bedeutet, dass es bereits drin ist oder nun synchronisiert ist)
-        if (d && (d.id || d.resync === true || d.ok === true)) return 'OK';
-        return 'ERR:' + JSON.stringify(d);
+        return d.id ? 'OK' : 'ERR:' + JSON.stringify(d);
     } catch(e) { return 'ERR:' + e.message; }
 })()
 "@
         $rid = Send-Cdp "Runtime.evaluate" @{ expression = $js; awaitPromise = $true; returnByValue = $true } $sid
         $reply = Wait-Reply $rid 5000
-        $val = $reply.result.result.value
-        if ($val -and $val -notmatch "^WAIT:") {
-            $result = $val
-            break
-        }
+        if ($reply.result.result.value) { $result = $reply.result.result.value; break }
     }
 
-    if ($result -eq "OK") {
-        Write-Host "OK" -ForegroundColor Green
-        $Success++
-    } else {
-        Write-Host "FEHLER ($result)" -ForegroundColor Red
-        $Fail++
-    }
+    if ($result -eq "OK") { Write-Host "OK" -ForegroundColor Green; $Success++ }
+    else { Write-Host "FEHLER ($result)" -ForegroundColor Red; $Fail++ }
+    Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
 
-Write-Host ""
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Ergebnis: $Success OK / $Fail Fehler" -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
-
-if ($Success -gt 0) {
-    Write-Host "Öffne Warenkorb..."
-    Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $sid | Out-Null
-}
-
-Write-Host ""
-Write-Host "Browser offen lassen -> Checkout klicken!"
-Read-Host "Enter zum Beenden des Scripts"
+Write-Host "`nErgebnis: $Success OK / $Fail Fehler"
+if ($Success -gt 0) { Send-Cdp "Target.createTarget" @{ url = "https://bandcamp.com/cart" } | Out-Null }
+Read-Host "`nEnter zum Beenden"
