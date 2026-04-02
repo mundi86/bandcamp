@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Turbo Edition)
+# Bandcamp Auto-Cart (Reliable Turbo Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -87,11 +87,18 @@ Write-Host ""
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
-    Start-Process $BrowserPath "--remote-debugging-port=9222 --user-data-dir=$env:TEMP\bc-cart-profile"
-    Start-Sleep -Seconds 2
+    Start-Process $BrowserPath "--remote-debugging-port=9222 --user-data-dir=$env:TEMP\bc-cart-profile --no-first-run"
+    Start-Sleep -Seconds 3
 }
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Konnte keine Verbindung zum Browser herstellen." -ForegroundColor Red; exit 1 }
+
+# Einen Tab für alles nutzen
+$cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
+$tid = $cr.result.targetId
+$ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
+$sid = $ar.result.sessionId
+Send-Cdp "Runtime.enable" @{} $sid | Out-Null
 
 $Success = 0; $Fail = 0
 $Total = $Urls.Count
@@ -102,54 +109,49 @@ for ($i = 0; $i -lt $Total; $i++) {
     $label = ($url -split "/")[-1]
     Write-Host "[$num/$Total] $label ... " -NoNewline
 
-    # Tab erstellen & Attach
-    $cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
-    $tid = $cr.result.targetId
-    $ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
-    $sid = $ar.result.sessionId
-    
     Send-Cdp "Page.navigate" @{ url = $url } $sid | Out-Null
     
-    # Turbo Polling: ID suchen & Add to Cart
     $result = "TIMEOUT"
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ($sw.ElapsedMilliseconds -lt 15000) {
+    while ($sw.ElapsedMilliseconds -lt 20000) {
         Start-Sleep -Milliseconds 500
         $js = @"
 (async () => {
     try {
-        const h = document.documentElement.innerHTML;
-        const m = h.match(/\"item_id\":\s*(\d+)/) || h.match(/data-item-id=\"(\d+)\"/) || h.match(/item[-_]id.{0,10}?(\d{5,})/);
-        if (!m) return null;
+        if (!document.body) return null;
+        let id = null;
+        if (window.TralbumData && window.TralbumData.id) id = window.TralbumData.id;
+        if (!id) {
+            const h = document.documentElement.innerHTML;
+            const m = h.match(/\"item_id\":\s*(\d+)/) || h.match(/data-item-id=\"(\d+)\"/) || h.match(/item[-_]id.{0,10}?(\d{5,})/);
+            if (m) id = m[1];
+        }
+        if (!id) return null;
         
         const type = window.location.href.includes('/album/') ? 'a' : 't';
-        const r = await fetch(window.location.origin + '/cart/cb', {
+        const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'req=add&item_type=' + type + '&item_id=' + m[1] + '&unit_price=0&quantity=1&local_id=lc'+Date.now()+'&sync_num=$num&cart_length=0'
+            body: 'req=add&item_type=' + type + '&item_id=' + id + '&quantity=1&local_id=lc'+Date.now()
         });
-        const d = await r.json();
-        return d.id ? 'OK:' + d.id : 'ERR:' + (d.error_message || 'unknown');
+        const d = await res.json();
+        return d.id ? 'OK' : 'ERR:' + (d.error_message || JSON.stringify(d));
     } catch(e) { return 'ERR:' + e.message; }
 })()
 "@
         $rid = Send-Cdp "Runtime.evaluate" @{ expression = $js; awaitPromise = $true; returnByValue = $true } $sid
         $reply = Wait-Reply $rid 3000
-        if ($reply.result.result.value) {
-            $result = $reply.result.result.value
-            break
-        }
+        $val = $reply.result.result.value
+        if ($val) { $result = $val; break }
     }
 
-    if ($result.StartsWith("OK:")) {
+    if ($result -eq "OK") {
         Write-Host "OK" -ForegroundColor Green
         $Success++
     } else {
         Write-Host "FEHLER ($result)" -ForegroundColor Red
         $Fail++
     }
-    
-    Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
 
 Write-Host ""
@@ -158,9 +160,10 @@ Write-Host "  Ergebnis: $Success OK / $Fail Fehler" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 if ($Success -gt 0) {
-    Send-Cdp "Target.createTarget" @{ url = "https://bandcamp.com/cart" } | Out-Null
+    Write-Host "Öffne Warenkorb..."
+    Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $sid | Out-Null
 }
 
 Write-Host ""
 Write-Host "Browser offen lassen -> Checkout klicken!"
-Read-Host "Enter zum Beenden"
+Read-Host "Enter zum Beenden des Scripts"
