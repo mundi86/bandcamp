@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bandcamp Auto-Cart (Incognito Edition)
+# Bandcamp Auto-Cart (Price Turbo Edition)
 # Benötigt: Chrome + Node.js (v22+)
 
 set -o pipefail
@@ -65,6 +65,7 @@ async function main() {
 
   let index = 0;
   let success = 0, fail = 0;
+  let cartCount = 0;
 
   async function processNext() {
     if (index >= urls.length) return;
@@ -82,42 +83,70 @@ async function main() {
       await send("Page.navigate", { url }, sid);
 
       let val = "TIMEOUT";
+      let priceInfo = "0.00";
       for (let t = 0; t < 25; t++) {
         await sleep(800);
         const r = await send("Runtime.evaluate", {
           expression: `(async () => {
             try {
-              const h = document.documentElement.innerHTML;
-              const id = (window.TralbumData && window.TralbumData.id) || 
-                         (document.querySelector('[data-item-id]')?.dataset.itemId) ||
-                         (h.match(/\"item_id\":\\s*(\\d+)/)?.[1]);
+              const getPrice = () => {
+                if (window.TralbumData) {
+                  const td = window.TralbumData;
+                  if (td.current && td.current.minimum_price != null) return td.current.minimum_price;
+                  if (td.minimum_price_nonzero != null) return td.minimum_price_nonzero;
+                  if (td.minimum_price != null) return td.minimum_price;
+                  if (td.current && td.current.price != null) return td.current.price;
+                }
+                const el = document.querySelector('[data-tralbum]');
+                if (el) {
+                  const data = JSON.parse(el.getAttribute('data-tralbum'));
+                  if (data.current && data.current.minimum_price != null) return data.current.minimum_price;
+                  if (data.minimum_price_nonzero != null) return data.minimum_price_nonzero;
+                  if (data.minimum_price != null) return data.minimum_price;
+                  if (data.current && data.current.price != null) return data.current.price;
+                }
+                const ldEl = document.querySelector('script[type="application/ld+json"]');
+                if (ldEl) {
+                  const ld = JSON.parse(ldEl.innerText);
+                  const offer = Array.isArray(ld.offers) ? ld.offers[0] : ld.offers;
+                  if (offer && offer.price != null) return parseFloat(offer.price);
+                }
+                return 0;
+              };
+              const getID = () => {
+                if (window.TralbumData) return window.TralbumData.id;
+                const el = document.querySelector('[data-tralbum]');
+                if (el) return JSON.parse(el.getAttribute('data-tralbum')).id;
+                const idEl = document.querySelector('[data-item-id]');
+                if (idEl) return idEl.getAttribute('data-item-id');
+                return null;
+              };
+              const id = getID();
+              const price = getPrice();
               if (!id) return null;
-              
-              let price = 0;
-              if (window.TralbumData && window.TralbumData.current) {
-                price = window.TralbumData.current.price || 0;
-              } else {
-                const mp = h.match(/\"price\":\\s*([\\d.]+)/);
-                if (mp) price = parseFloat(mp[1]);
-              }
-              
               const type = window.location.href.includes('/album/') ? 'a' : 't';
               const res = await fetch(window.location.origin + '/cart/cb', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=0'
+                body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=' + cartCount
               });
               const data = await res.json();
-              if (data && (data.id || data.resync === true || data.ok === true)) return 'OK';
+              if (data && (data.id || data.resync === true || data.ok === true)) return 'OK:' + price;
               return 'ERR:' + JSON.stringify(data);
             } catch(e) { return 'ERR:' + e.message; }
           })()`,
           awaitPromise: true, returnByValue: true
         }, sid);
-        if (r.result?.result?.value) { val = r.result.result.value; break; }
+        const res = r.result?.result?.value;
+        if (res) {
+          if (res.startsWith("OK:")) {
+            val = "OK"; priceInfo = res.split(":")[1]; cartCount++;
+          } else { val = res; }
+          break;
+        }
       }
 
-      if (val === "OK") { console.log("["+num+"/"+urls.length+"] " + label + " ... OK"); success++; }
+      if (val === "OK") { console.log("["+num+"/"+urls.length+"] " + label + " ... OK (Preis: " + priceInfo + ")"); success++; }
       else { console.log("["+num+"/"+urls.length+"] " + label + " ... FEHLER (" + val.substring(0, 50) + "...)"); fail++; }
       await send("Target.closeTarget", { targetId: tid });
     } catch (e) { fail++; }
@@ -143,7 +172,6 @@ main().catch(e => { console.error(e); process.exit(1); });
 NODEEOF
 
 # --- START ---
-# Wir starten im Incognito-Modus, um immer einen leeren Warenkorb zu haben
 if ! curl -s "http://127.0.0.1:9222/json/version" &>/dev/null; then
   "$CHROME" --remote-debugging-port=9222 --incognito --user-data-dir="${TEMP:-/tmp}/bc-cart-profile" &>/dev/null &
   sleep 3
