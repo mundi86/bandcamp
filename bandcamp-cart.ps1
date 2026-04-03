@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Perfect Price Edition)
+# Bandcamp Auto-Cart (Single-Window Price Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -64,20 +64,22 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 
 # --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Price Fix Edition)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Perfect Price)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
-    Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile-final --no-first-run"
+    # Start mit about:blank um den initialen Tab unter Kontrolle zu haben
+    Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile-final --no-first-run --no-default-browser-check about:blank"
     Start-Sleep -Seconds 3
 }
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Browser-Verbindung fehlgeschlagen." -ForegroundColor Red; exit 1 }
 
-$mainCr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
-$mainTid = $mainCr.result.targetId
+# Vorhandenen Tab suchen statt neuen zu erstellen
+$targets = Invoke-RestMethod "http://127.0.0.1:9222/json/list"
+$mainTid = $targets[0].id
 
 $Success = 0; $Fail = 0
 $CartCount = 0
@@ -86,6 +88,7 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
     $url = $Urls[$i].Trim(); $num = $i + 1; $label = ($url -split "/")[-1]
     Write-Host "[$num/$($Urls.Count)] $label ... " -NoNewline
 
+    # Tab für diesen Link erstellen
     $cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = $url })
     $tid = $cr.result.targetId
     $ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
@@ -100,7 +103,6 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 (async () => {
     try {
         const getPrice = () => {
-            // 1. Check TralbumData Objekt
             if (window.TralbumData) {
                 const td = window.TralbumData;
                 if (td.current && td.current.minimum_price != null) return td.current.minimum_price;
@@ -108,7 +110,6 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
                 if (td.minimum_price != null) return td.minimum_price;
                 if (td.current && td.current.price != null) return td.current.price;
             }
-            // 2. Check data-tralbum Attribut
             const el = document.querySelector('[data-tralbum]');
             if (el) {
                 const data = JSON.parse(el.getAttribute('data-tralbum'));
@@ -117,7 +118,6 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
                 if (data.minimum_price != null) return data.minimum_price;
                 if (data.current && data.current.price != null) return data.current.price;
             }
-            // 3. Check LD+JSON
             const ldEl = document.querySelector('script[type="application/ld+json"]');
             if (ldEl) {
                 const ld = JSON.parse(ldEl.innerText);
@@ -126,7 +126,6 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
             }
             return 0;
         };
-
         const getID = () => {
             if (window.TralbumData) return window.TralbumData.id;
             const el = document.querySelector('[data-tralbum]');
@@ -135,11 +134,9 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
             if (idEl) return idEl.getAttribute('data-item-id');
             return null;
         };
-
         const id = getID();
         const price = getPrice();
         if (!id) return null;
-        
         const type = window.location.href.includes('/album/') ? 'a' : 't';
         const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
@@ -172,11 +169,10 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 
 Write-Host "`nErgebnis: $Success OK / $Fail Fehler"
 if ($Success -gt 0 -or $Fail -gt 0) {
-    Write-Host "`nÖffne Warenkorb..."
+    # Den initialen Tab für den Warenkorb nutzen
     $arMain = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $mainTid; flatten = $true })
     Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $arMain.result.sessionId | Out-Null
     Send-Cdp "Target.activateTarget" @{ targetId = $mainTid } | Out-Null
-} else {
-    Send-Cdp "Target.closeTarget" @{ targetId = $mainTid } | Out-Null
 }
+
 Read-Host "`nFertig. Enter zum Beenden"
