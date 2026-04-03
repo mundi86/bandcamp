@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Ultimate Price Fix Edition)
+# Bandcamp Auto-Cart (Perfect Price Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -64,7 +64,7 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 
 # --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Ultimate Price Fix)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Perfect Price)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $portOpen = $false
@@ -97,62 +97,18 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
         $js = @"
 (async () => {
     try {
-        if (!document.body) return null;
+        const el = document.querySelector('[data-tralbum]');
+        if (!el) return null;
         
-        // 1. ID & PREIS Extraktion (Aggressiv)
-        let id = null;
-        let price = 0;
-
-        // Versuche TralbumData direkt
-        if (window.TralbumData) {
-            id = window.TralbumData.id;
-            price = window.TralbumData.minimum_price || (window.TralbumData.current && window.TralbumData.current.price) || 0;
-        }
-
-        // Versuche data-tralbum Attribut (oft bei Alben)
-        if (!id || price === 0) {
-            const el = document.querySelector('[data-tralbum]');
-            if (el) {
-                const data = JSON.parse(el.getAttribute('data-tralbum'));
-                id = id || data.id;
-                price = price || data.minimum_price || (data.current && data.current.price) || 0;
-            }
-        }
-
-        // Versuche LD+JSON
-        if (price === 0) {
-            const ld = document.querySelector('script[type="application/ld+json"]');
-            if (ld) {
-                const data = JSON.parse(ld.innerText);
-                const offer = Array.isArray(data.offers) ? data.offers[0] : data.offers;
-                if (offer && offer.price) price = parseFloat(offer.price);
-            }
-        }
-
-        // Versuche HTML Meta/Span (Letzter Fallback für Preis)
-        if (price === 0) {
-            const pEl = document.querySelector('meta[itemprop="price"]') || 
-                        document.querySelector('.buyItem .price') || 
-                        document.querySelector('.digital-price');
-            if (pEl) {
-                const val = pEl.content || pEl.innerText;
-                price = parseFloat(val.replace(/[^0-9.]/g, '')) || 0;
-            }
-        }
-
-        // ID Fallback
-        if (!id) {
-            const idEl = document.querySelector('[data-item-id]');
-            if (idEl) id = idEl.getAttribute('data-item-id');
-            else {
-                const m = document.documentElement.innerHTML.match(/\"item_id\":\s*(\d+)/);
-                if (m) id = m[1];
-            }
-        }
-
-        if (!id) return "WAIT:id";
+        // 1. Daten extrahieren
+        const data = JSON.parse(el.getAttribute('data-tralbum'));
+        const id = data.id;
+        const type = data.item_type === 'album' ? 'a' : 't';
         
-        const type = window.location.href.includes('/album/') ? 'a' : 't';
+        // 2. Preis extrahieren (minimum_price ist entscheidend)
+        let price = data.minimum_price || (data.current && data.current.minimum_price) || (data.current && data.current.price) || 0;
+        
+        // 3. In den Warenkorb legen
         const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
