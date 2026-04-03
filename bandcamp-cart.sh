@@ -8,7 +8,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LINK_FILE="${SCRIPT_DIR}/bandcamp.txt"
 DEBUG_PORT=9222
 TMP_JS="${TEMP:-/tmp}/bc_helper_$(date +%s).js"
-CONCURRENCY=5
 
 # --- URLs laden ---
 [ ! -f "$LINK_FILE" ] && { echo "FEHLER: bandcamp.txt fehlt!"; exit 1; }
@@ -59,7 +58,6 @@ async function main() {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await new Promise(r => { ws.onopen = r; });
 
-  // 1. Anker Tab suchen
   const targets = await httpGet(`http://127.0.0.1:${port}/json/list`);
   const mainTid = targets[0].id;
 
@@ -126,7 +124,7 @@ async function main() {
               const res = await fetch(window.location.origin + '/cart/cb', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=' + cartCount
+                body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=${cartCount}'
               });
               const data = await res.json();
               if (data && (data.id || data.resync === true || data.ok === true)) return 'OK:' + price;
@@ -138,13 +136,13 @@ async function main() {
         const res = r.result?.result?.value;
         if (res) {
           if (res.startsWith("OK:")) {
-            val = "OK"; priceInfo = res.split(":")[1]; cartCount++;
+            val = "OK"; priceInfo = res.split(":")[1];
           } else { val = res; }
           break;
         }
       }
 
-      if (val === "OK") { console.log("OK (Preis: " + priceInfo + ")"); success++; }
+      if (val === "OK") { console.log("OK (Preis: " + priceInfo + ")"); success++; cartCount++; }
       else { console.log("FEHLER (" + val.substring(0, 50) + "...)"); fail++; }
       await send("Target.closeTarget", { targetId: tid });
     } catch (e) { fail++; }
