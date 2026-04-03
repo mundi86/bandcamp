@@ -1,89 +1,50 @@
-# 🎵 Bandcamp Auto-Cart (Parallel Edition)
+# 🎵 Bandcamp Auto-Cart (Perfect Price Edition)
 
-> 🛒 Automatisch Tracks & Alben von Bandcamp in den Warenkorb legen — blitzschnell & parallel!
+> 🛒 Automatisch Tracks & Alben von Bandcamp in den Warenkorb legen — jetzt so stabil und präzise wie nie zuvor!
 
 ---
 
 ## ✨ Features
 
-- 🚀 **Parallelverarbeitung** — Verarbeitet bis zu 5 Links gleichzeitig (Worker-Pool)
-- ⚡ **Turbo-Modus** — Fügt Items zum Warenkorb hinzu, sobald die ID im HTML erscheint (kein Warten auf Bilder/Werbung)
-- 🔒 **Ohne Anmeldung** — Login erst beim Checkout im Browser nötig
-- 📂 **Einfache Konfiguration** — Eine `bandcamp.txt` mit URLs, eine pro Zeile
-- 🌐 **Tracks & Alben** — Beides wird automatisch erkannt
-- 🛍️ **Auto-Checkout** — Öffnet den Warenkorb am Ende automatisch im Browser
-- 💻 **Plattformübergreifend** — Windows, Mac & Linux
+- 💰 **Deep Price Detection** — Erkennt automatisch den korrekten Mindestpreis (wichtig für den Checkout!).
+- 🪟 **Single-Window Logic** — Alles findet in einem einzigen Browser-Fenster statt (kein Fenster-Chaos mehr).
+- ⚡ **Turbo Sync** — Optimierte Übermittlung an die Bandcamp-API für maximale Geschwindigkeit.
+- 🎯 **Auto-Focus** — Der Warenkorb wird am Ende automatisch aktiviert und in den Vordergrund geholt.
+- 🔒 **Sichere Session** — Nutzt ein isoliertes Browser-Profil für saubere Durchläufe.
+- 💻 **Plattformübergreifend** — Identische Logik für Windows (`.ps1`) und Mac/Linux (`.sh`).
 
 ---
 
 ## 📋 Voraussetzungen
 
-| 💻 System | 📜 Script | 🛠️ Installation nötig? |
+| 💻 System | 📜 Script | 🛠️ Benötigt |
 |----------|----------|----------------------|
-| **Windows** | `bandcamp-cart.ps1` | ✔️ Chrome oder Edge erforderlich |
-| **Mac** | `bandcamp-cart.sh` | 🟢 [Node.js v22+](https://nodejs.org) erforderlich |
-| **Linux** | `bandcamp-cart.sh` | 🟢 [Node.js v22+](https://nodejs.org) erforderlich |
-
----
-
-## 📂 Dateien
-
-```
-bandcam.com/
-├── bandcamp-cart.ps1  ⚡ PowerShell-Script (Windows)
-├── bandcamp-cart.sh   🚀 Bash-Script (Mac / Linux / Git Bash)
-├── bandcamp.txt       🔗 Deine Bandcamp-URLs
-└── README.md          📖 Dokumentation
-```
+| **Windows** | `bandcamp-cart.ps1` | Chrome oder Edge |
+| **Mac / Linux** | `bandcamp-cart.sh` | [Node.js v22+](https://nodejs.org) |
 
 ---
 
 ## 🚀 Los geht's
 
-### 1️⃣ URLs in `bandcamp.txt` eintragen
-
-Füge deine Bandcamp-Links in die `bandcamp.txt` ein — **eine URL pro Zeile**:
-
-```text
-https://artist.bandcamp.com/track/song-name
-https://artist.bandcamp.com/album/album-name
-```
-
-### 2️⃣ Script starten
-
-**🪟 Windows:**
-
-Rechtsklick auf `bandcamp-cart.ps1` → **Mit PowerShell ausführen**
-
-Oder über die Konsole:
-```powershell
-powershell -ExecutionPolicy Bypass -File bandcamp-cart.ps1
-```
-
-**🍎 Mac / 🐧 Linux:**
-
-Stelle sicher, dass Node.js installiert ist (`node -v` sollte v22 oder höher zeigen).
-```bash
-bash bandcamp-cart.sh
-```
-
-### 3️⃣ Bezahlen
-
-🛒 Der Warenkorb öffnet sich automatisch → **Checkout** klicken → fertig!
+1. **URLs eintragen**: Füge deine Bandcamp-Links in die `bandcamp.txt` ein (eine URL pro Zeile).
+2. **Script starten**:
+   - **Windows**: Rechtsklick auf `bandcamp-cart.ps1` -> *Mit PowerShell ausführen*.
+   - **Mac/Linux**: `bash bandcamp-cart.sh` im Terminal.
+3. **Checkout**: Am Ende öffnet sich der Warenkorb mit den korrekten Preisen. Einfach auf *Checkout* klicken und fertig!
 
 ---
 
 ## ⚙️ Ablauf (Technisch)
 
-1. **Browser-Control**: Das Script verbindet sich per **Chrome DevTools Protocol (CDP)** mit einem Browser-Fenster.
-2. **Worker-Pool**: Es werden 5 parallele Tabs geöffnet.
-3. **Aggressives Polling**: Sobald die `item_id` im DOM der Seite auftaucht, wird der Warenkorb-POST-Request abgesetzt.
-4. **Zentralisierung**: Alle Items landen in derselben anonymen Session im Browser.
+1. **Anchor-Tab**: Das Script nutzt den ersten Tab als Anker, um den Browser-Prozess stabil zu halten.
+2. **Dynamic Processing**: Für jeden Link wird kurzzeitig ein neuer Tab geöffnet, die Daten (ID & Preis) extrahiert und die API-Anfrage gesendet.
+3. **Deep Search**: Das Script durchsucht `TralbumData`, HTML-Attribute und JSON-LD Daten nach dem exakten Preis.
+4. **Final Navigation**: Der Anker-Tab navigiert am Ende zum Warenkorb.
 
 ---
 
 ## 📜 Lizenz
 
-[MIT License](LICENSE) — kostenlos, open source.
+[MIT License](LICENSE) — kostenlos & open source.
 
-🎶 Viel Spaß beim Musik kaufen! 🎶
+🎶 *Viel Spaß beim Entdecken neuer Musik!* 🛒
