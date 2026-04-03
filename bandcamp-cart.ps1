@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Final Price Fix Edition)
+# Bandcamp Auto-Cart (Ultimate Price Fix Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -64,13 +64,13 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 
 # --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Deep Price Search)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Ultimate Price Fix)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
-    Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile-new --no-first-run"
+    Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile-final --no-first-run"
     Start-Sleep -Seconds 3
 }
 
@@ -93,49 +93,64 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
     $detectedPrice = "0.00"
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt 20000) {
-        Start-Sleep -Milliseconds 800
+        Start-Sleep -Milliseconds 1000
         $js = @"
 (async () => {
     try {
         if (!document.body) return null;
-        const html = document.documentElement.innerHTML;
         
-        // 1. ID Erkennung
-        const id = (window.TralbumData && window.TralbumData.id) || 
-                   (document.querySelector('[data-item-id]')?.dataset.itemId) ||
-                   (html.match(/\"item_id\":\s*(\d+)/)?.[1]);
-        if (!id) return null;
-        
-        // 2. PREIS Erkennung (Deep Search)
+        // 1. ID & PREIS Extraktion (Aggressiv)
+        let id = null;
         let price = 0;
-        
-        // A) LD+JSON (Sehr zuverlässig)
-        try {
+
+        // Versuche TralbumData direkt
+        if (window.TralbumData) {
+            id = window.TralbumData.id;
+            price = window.TralbumData.minimum_price || (window.TralbumData.current && window.TralbumData.current.price) || 0;
+        }
+
+        // Versuche data-tralbum Attribut (oft bei Alben)
+        if (!id || price === 0) {
+            const el = document.querySelector('[data-tralbum]');
+            if (el) {
+                const data = JSON.parse(el.getAttribute('data-tralbum'));
+                id = id || data.id;
+                price = price || data.minimum_price || (data.current && data.current.price) || 0;
+            }
+        }
+
+        // Versuche LD+JSON
+        if (price === 0) {
             const ld = document.querySelector('script[type="application/ld+json"]');
             if (ld) {
                 const data = JSON.parse(ld.innerText);
-                if (data.offers && data.offers.price) price = parseFloat(data.offers.price);
-                else if (Array.isArray(data.offers) && data.offers[0].price) price = parseFloat(data.offers[0].price);
+                const offer = Array.isArray(data.offers) ? data.offers[0] : data.offers;
+                if (offer && offer.price) price = parseFloat(offer.price);
             }
-        } catch(e) {}
-
-        // B) TralbumData Check
-        if (price === 0 && window.TralbumData) {
-            price = window.TralbumData.minimum_price || 
-                    (window.TralbumData.current && window.TralbumData.current.price) || 0;
         }
 
-        // C) Meta Tags Fallback
+        // Versuche HTML Meta/Span (Letzter Fallback für Preis)
         if (price === 0) {
-            const meta = document.querySelector('meta[itemprop="price"]');
-            if (meta) price = parseFloat(meta.content);
+            const pEl = document.querySelector('meta[itemprop="price"]') || 
+                        document.querySelector('.buyItem .price') || 
+                        document.querySelector('.digital-price');
+            if (pEl) {
+                const val = pEl.content || pEl.innerText;
+                price = parseFloat(val.replace(/[^0-9.]/g, '')) || 0;
+            }
         }
 
-        // D) Regex Scan (Letzte Rettung)
-        if (price === 0) {
-            const mp = html.match(/\"minimum_price\":\s*([\d.]+)/) || html.match(/\"price\":\s*([\d.]+)/);
-            if (mp) price = parseFloat(mp[1]);
+        // ID Fallback
+        if (!id) {
+            const idEl = document.querySelector('[data-item-id]');
+            if (idEl) id = idEl.getAttribute('data-item-id');
+            else {
+                const m = document.documentElement.innerHTML.match(/\"item_id\":\s*(\d+)/);
+                if (m) id = m[1];
+            }
         }
+
+        if (!id) return "WAIT:id";
         
         const type = window.location.href.includes('/album/') ? 'a' : 't';
         const res = await fetch(window.location.origin + '/cart/cb', {
