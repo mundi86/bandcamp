@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (True Incognito Edition)
+# Bandcamp Auto-Cart (Standard Profile Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -64,21 +64,22 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 
 # --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (True Incognito)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Standard Profile)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
-    Start-Process $BrowserPath "--remote-debugging-port=9222 --incognito --user-data-dir=$env:TEMP\bc-cart-profile-true --no-first-run"
+    # Start ohne Incognito, mit Standard-Profil
+    Start-Process $BrowserPath "--remote-debugging-port=9222 --user-data-dir=$env:TEMP\bc-cart-profile-std --no-first-run --no-default-browser-check about:blank"
     Start-Sleep -Seconds 3
 }
 
 try { Connect-Cdp } catch { Write-Host "FEHLER: Browser-Verbindung fehlgeschlagen." -ForegroundColor Red; exit 1 }
 
-# Kontext ermitteln (Incognito Kontext finden)
-$contextReply = Wait-Reply (Send-Cdp "Target.getBrowserContexts" @{})
-$incognitoContextId = $contextReply.result.browserContextIds[0] # Nutzt den ersten Kontext (Inkognito)
+# Den ersten Tab als Anker suchen
+$targets = Invoke-RestMethod "http://127.0.0.1:9222/json/list"
+$mainTid = $targets[0].id
 
 $Success = 0; $Fail = 0
 $CartCount = 0
@@ -87,11 +88,7 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
     $url = $Urls[$i].Trim(); $num = $i + 1; $label = ($url -split "/")[-1]
     Write-Host "[$num/$($Urls.Count)] $label ... " -NoNewline
 
-    # Tab explizit im Inkognito-Kontext erstellen
-    $params = @{ url = $url }
-    if ($incognitoContextId) { $params.browserContextId = $incognitoContextId }
-    
-    $cr = Wait-Reply (Send-Cdp "Target.createTarget" $params)
+    $cr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = $url })
     $tid = $cr.result.targetId
     $ar = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $tid; flatten = $true })
     $sid = $ar.result.sessionId
@@ -126,15 +123,18 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
             if (window.TralbumData) return window.TralbumData.id;
             const el = document.querySelector('[data-tralbum]');
             if (el) return JSON.parse(el.getAttribute('data-tralbum')).id;
+            const idEl = document.querySelector('[data-item-id]');
+            if (idEl) return idEl.getAttribute('data-item-id');
             return null;
         };
         const id = getID();
         const price = getPrice();
         if (!id) return null;
+        const type = window.location.href.includes('/album/') ? 'a' : 't';
         const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'req=add&item_type=' + (window.location.href.includes('/album/') ? 'a' : 't') + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=$CartCount'
+            body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=$CartCount'
         });
         const d = await res.json();
         if (d && (d.id || d.resync === true || d.ok === true)) return 'OK:' + price;
@@ -162,11 +162,10 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 
 Write-Host "`nErgebnis: $Success OK / $Fail Fehler"
 if ($Success -gt 0 -or $Fail -gt 0) {
-    Write-Host "`nÖffne Warenkorb im Inkognito-Kontext..."
-    $params = @{ url = "https://bandcamp.com/cart" }
-    if ($incognitoContextId) { $params.browserContextId = $incognitoContextId }
-    $finalCr = Wait-Reply (Send-Cdp "Target.createTarget" $params)
-    Send-Cdp "Target.activateTarget" @{ targetId = $finalCr.result.targetId } | Out-Null
+    Write-Host "`nÖffne Warenkorb..."
+    $arMain = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $mainTid; flatten = $true })
+    Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $arMain.result.sessionId | Out-Null
+    Send-Cdp "Target.activateTarget" @{ targetId = $mainTid } | Out-Null
 }
 
 Read-Host "`nFertig. Enter zum Beenden"
