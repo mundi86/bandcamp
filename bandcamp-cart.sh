@@ -35,14 +35,14 @@ const concurrency = parseInt(process.argv[4] || "5");
 
 function httpGet(url) {
   return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json/version`, res => {
+    http.get(url, res => {
       let data = ""; res.on("data", c => data += c); res.on("end", () => resolve(JSON.parse(data)));
     }).on("error", reject);
   });
 }
 
 async function main() {
-  const ver = await httpGet();
+  const ver = await httpGet(`http://127.0.0.1:${port}/json/version`);
   const ws = new WebSocket(ver.webSocketDebuggerUrl);
   let msgId = 100;
   const pending = {};
