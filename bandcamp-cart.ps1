@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Bandcamp Auto-Cart (Standard Profile Edition)
+# Bandcamp Auto-Cart (Single-Window Price Edition)
 # Keine Installation nötig — nur Chrome/Edge + PowerShell.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -64,13 +64,13 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 
 # --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Standard Profile)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Perfect Price)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $portOpen = $false
 try { $v = Invoke-RestMethod "http://127.0.0.1:9222/json/version" -TimeoutSec 1; $portOpen = $true } catch {}
 if (-not $portOpen) {
-    # Start ohne Incognito, mit Standard-Profil
+    # Start von Chrome
     Start-Process $BrowserPath "--remote-debugging-port=9222 --user-data-dir=$env:TEMP\bc-cart-profile-std --no-first-run --no-default-browser-check about:blank"
     Start-Sleep -Seconds 3
 }
@@ -157,6 +157,7 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
     } else {
         Write-Host "FEHLER ($result)" -ForegroundColor Red; $Fail++
     }
+    # Tab schließen
     Send-Cdp "Target.closeTarget" @{ targetId = $tid } | Out-Null
 }
 
@@ -166,6 +167,8 @@ if ($Success -gt 0 -or $Fail -gt 0) {
     $arMain = Wait-Reply (Send-Cdp "Target.attachToTarget" @{ targetId = $mainTid; flatten = $true })
     Send-Cdp "Page.navigate" @{ url = "https://bandcamp.com/cart" } $arMain.result.sessionId | Out-Null
     Send-Cdp "Target.activateTarget" @{ targetId = $mainTid } | Out-Null
+    Start-Sleep -Seconds 2
 }
 
-Read-Host "`nFertig. Enter zum Beenden"
+Write-Host "`nFertig. Browser bleibt für Checkout offen."
+Read-Host "Enter zum Beenden des Scripts (Browser bleibt offen)"
