@@ -64,7 +64,7 @@ function Wait-Reply([int]$targetId, [int]$timeoutMs = 15000) {
 
 # --- START ---
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Bandcamp -> Warenkorb (Perfect Price)" -ForegroundColor Cyan
+Write-Host "  Bandcamp -> Warenkorb (Price Fix Edition)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $portOpen = $false
@@ -80,6 +80,8 @@ $mainCr = Wait-Reply (Send-Cdp "Target.createTarget" @{ url = "about:blank" })
 $mainTid = $mainCr.result.targetId
 
 $Success = 0; $Fail = 0
+$CartCount = 0
+
 for ($i = 0; $i -lt $Urls.Count; $i++) {
     $url = $Urls[$i].Trim(); $num = $i + 1; $label = ($url -split "/")[-1]
     Write-Host "[$num/$($Urls.Count)] $label ... " -NoNewline
@@ -97,22 +99,52 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
         $js = @"
 (async () => {
     try {
-        const el = document.querySelector('[data-tralbum]');
-        if (!el) return null;
+        const getPrice = () => {
+            // 1. Check TralbumData Objekt
+            if (window.TralbumData) {
+                const td = window.TralbumData;
+                if (td.current && td.current.minimum_price != null) return td.current.minimum_price;
+                if (td.minimum_price_nonzero != null) return td.minimum_price_nonzero;
+                if (td.minimum_price != null) return td.minimum_price;
+                if (td.current && td.current.price != null) return td.current.price;
+            }
+            // 2. Check data-tralbum Attribut
+            const el = document.querySelector('[data-tralbum]');
+            if (el) {
+                const data = JSON.parse(el.getAttribute('data-tralbum'));
+                if (data.current && data.current.minimum_price != null) return data.current.minimum_price;
+                if (data.minimum_price_nonzero != null) return data.minimum_price_nonzero;
+                if (data.minimum_price != null) return data.minimum_price;
+                if (data.current && data.current.price != null) return data.current.price;
+            }
+            // 3. Check LD+JSON
+            const ldEl = document.querySelector('script[type="application/ld+json"]');
+            if (ldEl) {
+                const ld = JSON.parse(ldEl.innerText);
+                const offer = Array.isArray(ld.offers) ? ld.offers[0] : ld.offers;
+                if (offer && offer.price != null) return parseFloat(offer.price);
+            }
+            return 0;
+        };
+
+        const getID = () => {
+            if (window.TralbumData) return window.TralbumData.id;
+            const el = document.querySelector('[data-tralbum]');
+            if (el) return JSON.parse(el.getAttribute('data-tralbum')).id;
+            const idEl = document.querySelector('[data-item-id]');
+            if (idEl) return idEl.getAttribute('data-item-id');
+            return null;
+        };
+
+        const id = getID();
+        const price = getPrice();
+        if (!id) return null;
         
-        // 1. Daten extrahieren
-        const data = JSON.parse(el.getAttribute('data-tralbum'));
-        const id = data.id;
-        const type = data.item_type === 'album' ? 'a' : 't';
-        
-        // 2. Preis extrahieren (minimum_price ist entscheidend)
-        let price = data.minimum_price || (data.current && data.current.minimum_price) || (data.current && data.current.price) || 0;
-        
-        // 3. In den Warenkorb legen
+        const type = window.location.href.includes('/album/') ? 'a' : 't';
         const res = await fetch(window.location.origin + '/cart/cb', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=0'
+            body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=$num&cart_length=$CartCount'
         });
         const d = await res.json();
         if (d && (d.id || d.resync === true || d.ok === true)) return 'OK:' + price;
@@ -131,7 +163,7 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
     }
 
     if ($result -eq "OK") {
-        Write-Host "OK (Preis: $detectedPrice)" -ForegroundColor Green; $Success++
+        Write-Host "OK (Preis: $detectedPrice)" -ForegroundColor Green; $Success++; $CartCount++
     } else {
         Write-Host "FEHLER ($result)" -ForegroundColor Red; $Fail++
     }
