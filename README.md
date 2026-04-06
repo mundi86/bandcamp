@@ -4,6 +4,31 @@
 
 ---
 
+## 📦 Version 2.4.0 — Changelog
+
+### 🐛 Bugfixes
+- **Template Literal Bug (Bash)** — `${num}` und `${cartCount}` in der Cart-API-Anfrage wurden nicht interpoliert (einfache Anführungszeichen). Jetzt korrekte JS-String-Verkettung.
+- **Null-Safety (PowerShell)** — `$reply.result.result.value` stürzte ab, wenn die Antwort null war. Jetzt sichere Prüfung aller Ebenen.
+
+### ⚡ Verbesserungen
+- **Retry-Logik** — Bei ERR-Antworten von der Bandcamp-API wird automatisch bis zu 2x wiederholt, bevor es als Fehler zählt.
+- **WebSocket Cleanup (PowerShell)** — Neue `Disconnect-Cdp` Funktion schließt die WebSocket-Verbindung sauber am Script-Ende.
+- **Temp-File Cleanup (Bash)** — `trap` entfernt die generierte JS-Datei jetzt auch bei Script-Abbruch (EXIT/INT/TERM).
+
+---
+
+## 📋 Versionshistorie
+
+| Version | Datum | Beschreibung |
+|---------|-------|--------------|
+| **2.4.0** | 2026-04-06 | Bugfixes: Template Literal, Null-Safety, Retry-Logik, Cleanup |
+| **2.3.0** | 2026-04-06 | Perfect Price Detection & Single-Window Logic |
+| **2.2.0** | 2026-04-05 | Standard Profile Mode für zuverlässige Cart-Sync |
+| **2.1.0** | 2026-04-05 | Bash Script Port & Cart-Sync Fixes |
+| **2.0.0** | 2026-04-05 | Initiale Release mit PowerShell & Bash Support |
+
+---
+
 ## ✨ Features
 
 - 💰 **Deep Price Detection** — Erkennt automatisch den korrekten Mindestpreis (wichtig für den Checkout!).

@@ -50,6 +50,22 @@ function Connect-Cdp {
     $script:Ws = $socket
 }
 
+function Disconnect-Cdp {
+    if ($script:Ws -and $script:Ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
+        try {
+            $script:Ws.CloseAsync(
+                [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
+                "Done",
+                [Threading.CancellationToken]::None
+            ).GetAwaiter().GetResult()
+        } catch {}
+    }
+    if ($script:Ws) {
+        $script:Ws.Dispose()
+        $script:Ws = $null
+    }
+}
+
 function Send-Cdp([string]$Method, [hashtable]$Params = @{}, [string]$SessionId = "") {
     $script:CdpMsgId++
     $id = $script:CdpMsgId
@@ -165,6 +181,8 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 
         $result = "TIMEOUT"
         $detectedPrice = "0.00"
+        $lastError = ""
+        $retryCount = 0
         $sw = [Diagnostics.Stopwatch]::StartNew()
 
         while ($sw.ElapsedMilliseconds -lt 20000) {
@@ -227,7 +245,10 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
 
             $rid = Send-Cdp "Runtime.evaluate" @{ expression = $js; awaitPromise = $true; returnByValue = $true } $sid
             $reply = Wait-Reply $rid 5000
-            $val = $reply.result.result.value
+            $val = $null
+            if ($reply -and $reply.result -and $reply.result.result) {
+                $val = $reply.result.result.value
+            }
 
             if ($val -and $val -like "OK:*") {
                 $result = "OK"
@@ -235,6 +256,13 @@ for ($i = 0; $i -lt $Urls.Count; $i++) {
                 break
             }
             if ($val -and $val -like "ERR:*") {
+                $lastError = $val
+                $retryCount++
+                if ($retryCount -le 2) {
+                    continue
+                }
+            }
+            if ($val) {
                 $result = $val
                 break
             }

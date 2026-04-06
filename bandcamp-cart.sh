@@ -114,6 +114,8 @@ async function main() {
 
       let result = "TIMEOUT";
       let priceInfo = "0.00";
+      let lastError = "";
+      let retryCount = 0;
 
       for (let t = 0; t < 25; t += 1) {
         await sleep(1000);
@@ -164,7 +166,7 @@ async function main() {
               const res = await fetch(window.location.origin + '/cart/cb', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=${num}&cart_length=${cartCount}'
+                body: 'req=add&item_type=' + type + '&item_id=' + id + '&unit_price=' + price + '&quantity=1&local_id=lc' + Date.now() + '&sync_num=' + num + '&cart_length=' + cartCount
               });
               const data = await res.json();
               if (data && (data.id || data.resync === true || data.ok === true)) return 'OK:' + price;
@@ -182,9 +184,15 @@ async function main() {
           if (value.startsWith("OK:")) {
             result = "OK";
             priceInfo = value.split(":")[1];
-          } else {
-            result = value;
+            break;
+          } else if (value.startsWith("ERR:")) {
+            lastError = value;
+            retryCount += 1;
+            if (retryCount <= 2) {
+              continue;
+            }
           }
+          result = value;
           break;
         }
       }
